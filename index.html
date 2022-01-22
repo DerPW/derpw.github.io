@@ -5,53 +5,58 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Taco</title>
-    <link rel="icon" href="https://cdn.discordapp.com/avatars/256482822158680065/3b87c103a3f49585da008f206e1502a7.webp">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
-    <link rel="stylesheet" href="https://code.getmdl.io/1.3.0/material.deep_orange-light_blue.min.css">
-    <style>
-        body {
-            background-color: #252526;
-            color: #fff;
-        }
-        .demo-card-square.mdl-card {
-        width: 320px;
-        height: 320px;
-        }
-        .demo-card-square > .mdl-card__title {
-        color: #fff;
-        background:
-            url('https://cdn.discordapp.com/avatars/256482822158680065/3b87c103a3f49585da008f206e1502a7.webp') bottom right 15% no-repeat #22B8FC;
-        }
-        .wrapper {
-            height: 100vh;
-            width: 100vw;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .mdl-card {
-            height: 50px;
-            width: 50px;
-            background-color: #1e1e1e;
-        }
-    </style>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+    <link href="style.css" rel="stylesheet">
 </head>
 <body>
-    <div class="wrapper">
-        <div class="demo-card-square mdl-card mdl-shadow--2dp">
-            <div class="mdl-card__title mdl-card--expand">
-                <h2 class="mdl-card__title-text">Taco</h2>
-            </div>
-            <div class="mdl-card__supporting-text" style="color: #fff;">
-                Taco-Shell, Runder-Hackfleisch, gelbe Paprika, rote Chili-Schote, Frühlingszwiebeln, Knoblauchzehe, kleines Salatherz, Cheddar-Käse, Tomatenmark, Olivenöl
-            </div>
-            <div class="mdl-card__actions mdl-card--border">
-                <a class="mdl-button mdl-button--colored mdl-js-button mdl-js-ripple-effect" style="user-select: none" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
-                    Zur Party?
-                </a>
-            </div>
+    <div style="position: relative;margin: auto; height: fit-content;padding: 8vw 8vh;">
+        <h1 class="projects-title">Projekte</h1>
+    
+        <div class="row row-cols-1 row-cols-md-2 g-4 cards">
+            <div class="col">
+                <div class="card">
+                    <!-- <img src="..." class="card-img-top" alt="..."> -->
+                    <div class="card-body">
+                    <h5 class="card-title">Melvoridle XP Calculator</h5>
+                    <p class="card-text">Some quick example text to build on the card title and make up the bulk of the card's content.</p>
+                    <a href="/Melvoridle-xp-calculator" class="btn btn-primary">Open</a>
+                    </div>
+                </div>
         </div>
+        <div class="col">
+            <div class="card">
+                <!-- <img src="..." class="card-img-top" alt="..."> -->
+                <div class="card-body">
+                  <h5 class="card-title">Card title</h5>
+                  <p class="card-text">Some quick example text to build on the card title and make up the bulk of the card's content.</p>
+                  <a href="#" class="btn btn-primary">Open</a>
+                </div>
+              </div>
+        </div>
+        <div class="col">
+            <div class="card">
+                <!-- <img src="..." class="card-img-top" alt="..."> -->
+                <div class="card-body">
+                  <h5 class="card-title">Card title</h5>
+                  <p class="card-text">Some quick example text to build on the card title and make up the bulk of the card's content.</p>
+                  <a href="#" class="btn btn-primary">Open</a>
+                </div>
+              </div>
+        </div>
+        <div class="col">
+            <div class="card">
+                <!-- <img src="..." class="card-img-top" alt="..."> -->
+                <div class="card-body">
+                  <h5 class="card-title">Card title</h5>
+                  <p class="card-text">Some quick example text to build on the card title and make up the bulk of the card's content.</p>
+                  <a href="#" class="btn btn-primary">Open</a>
+                </div>
+              </div>
+        </div>
+      </div>
     </div>
-    <script defer src="https://code.getmdl.io/1.3.0/material.min.js"></script>
+
+      <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" crossorigin="anonymous"></script>
+      <script src="script.js"></script>
 </body>
 </html>

@@ -1,0 +1,17 @@
+body {
+	background-color: #181a1b;
+}
+
+.card {
+	background-color: #181a1b;
+	color: white;
+}
+
+.card .card-body a {
+	border: none;
+}
+
+.projects-title {
+	color: white;
+	margin-bottom: 20px;
+}
