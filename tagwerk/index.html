@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tagwerk – Musik-Tags im Browser bearbeiten</title>
+  <meta name="description" content="Moderner Tag-Editor für MP3, FLAC, M4A, Ogg, Opus, WAV und AIFF – direkt im Browser, deine Dateien bleiben lokal.">
+  <meta name="theme-color" content="#08080d">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    // Theme vor dem ersten Rendern setzen, damit nichts aufblitzt.
+    try {
+      const s = JSON.parse(localStorage.getItem('tagwerk.settings') || '{}');
+      const t = s.theme || 'dark';
+      document.documentElement.dataset.theme = t === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : t;
+      if (s.accent) document.documentElement.dataset.accent = s.accent;
+      if (s.motion === false) document.documentElement.dataset.motion = 'off';
+    } catch {}
+  </script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+    <div class="blob b4"></div>
+    <div class="grain"></div>
+  </div>
+
+  <div class="app" id="app">
+    <header class="topbar glass" id="topbar">
+      <div class="brand">
+        <div class="brand-mark" data-icon="tag"></div>
+        <span class="brand-name">Tagwerk</span>
+      </div>
+
+      <button class="path-btn" id="btn-open" title="Ordner öffnen (⌘O)">
+        <span data-icon="folderOpen"></span>
+        <span class="path-label" id="path-label">Ordner öffnen</span>
+        <span class="kbd">⌘O</span>
+      </button>
+
+      <label class="search" id="search">
+        <span data-icon="search"></span>
+        <input id="search-input" type="search" placeholder="Suchen …" autocomplete="off" spellcheck="false">
+        <span class="kbd">⌘F</span>
+      </label>
+
+      <div class="topbar-spacer"></div>
+
+      <button class="btn ghost" id="btn-actions" title="Automationen (⌘K)">
+        <span data-icon="sparkles"></span><span class="btn-label">Automationen</span><span class="kbd">⌘K</span>
+      </button>
+      <div class="btn-group">
+        <button class="btn icon ghost" id="btn-undo" title="Rückgängig (⌘Z)" data-icon="undo"></button>
+        <button class="btn icon ghost" id="btn-redo" title="Wiederholen (⇧⌘Z)" data-icon="redo"></button>
+      </div>
+      <button class="btn primary" id="btn-save" title="Speichern (⌘S)" disabled>
+        <span data-icon="save"></span><span class="btn-label">Speichern</span><span class="badge" id="save-count">0</span>
+      </button>
+      <button class="btn icon ghost" id="btn-panel" title="Editor ein-/ausblenden" data-icon="panel"></button>
+      <button class="btn icon ghost" id="btn-theme" title="Hell/Dunkel umschalten" data-icon="moon"></button>
+      <button class="btn icon ghost" id="btn-settings" title="Einstellungen" data-icon="settings"></button>
+    </header>
+
+    <main class="workspace" id="workspace">
+      <section class="library glass" id="library">
+        <div class="table-head" id="table-head"></div>
+        <div class="table-body" id="table-body" tabindex="0">
+          <div class="table-spacer" id="table-spacer"></div>
+        </div>
+        <div class="welcome" id="welcome"></div>
+        <div class="loading" id="loading" hidden>
+          <div class="loading-disc"></div>
+          <div class="loading-text" id="loading-text">Lese Tags …</div>
+          <div class="progress"><div class="progress-bar" id="loading-bar"></div></div>
+        </div>
+      </section>
+
+      <aside class="inspector glass" id="inspector"></aside>
+    </main>
+
+    <footer class="statusbar" id="statusbar"></footer>
+  </div>
+
+  <div class="drop-overlay" id="drop-overlay" hidden>
+    <div class="drop-card">
+      <div class="drop-icon" data-icon="folderOpen"></div>
+      <div class="drop-title">Loslassen zum Öffnen</div>
+      <div class="drop-sub">Ordner oder Audiodateien</div>
+    </div>
+  </div>
+  <div id="layer"></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>
