@@ -1,0 +1,12 @@
+{
+  "name": "Formwerk – OpenSCAD im Browser",
+  "short_name": "Formwerk",
+  "description": "OpenSCAD komplett im Browser: Code oder Baukasten, 3D-Ansicht, Customizer, Export.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07070c",
+  "theme_color": "#08080d",
+  "lang": "de",
+  "icons": [{ "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

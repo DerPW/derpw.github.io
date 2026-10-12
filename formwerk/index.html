@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Formwerk – OpenSCAD im Browser</title>
+  <meta name="description" content="OpenSCAD komplett im Browser: Code oder Baukasten, Live-3D-Ansicht, Customizer und Export als STL, 3MF, SVG – ohne Server, ohne Installation.">
+  <meta name="theme-color" content="#08080d">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="vendor/codemirror/codemirror.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script>
+    // Theme vor dem ersten Rendern setzen, damit nichts aufblitzt.
+    try {
+      const s = JSON.parse(localStorage.getItem('formwerk.settings') || '{}');
+      const t = s.theme || 'dark';
+      document.documentElement.dataset.theme = t === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : t;
+      if (s.accent) document.documentElement.dataset.accent = s.accent;
+      if (s.motion === false) document.documentElement.dataset.motion = 'off';
+    } catch {}
+  </script>
+  <script src="vendor/codemirror/codemirror.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+    <div class="grain"></div>
+  </div>
+
+  <div class="app" id="app">
+    <header class="topbar glass" id="topbar">
+      <div class="brand" title="Formwerk">
+        <div class="brand-mark" data-icon="box"></div>
+        <span class="brand-name">Formwerk</span>
+      </div>
+
+      <div class="seg" id="mode-switch" role="tablist" aria-label="Arbeitsweise">
+        <span class="seg-glider" aria-hidden="true"></span>
+        <button class="seg-btn active" role="tab" data-mode="code" title="Code schreiben"><span data-icon="code"></span><span class="seg-label">Code</span></button>
+        <button class="seg-btn" role="tab" data-mode="blocks" title="Mit Blöcken bauen"><span data-icon="puzzle"></span><span class="seg-label">Baukasten</span></button>
+      </div>
+
+      <button class="file-btn" id="btn-file" title="Datei">
+        <span data-icon="fileCode"></span>
+        <span class="file-name" id="file-name">Unbenannt</span>
+        <span class="file-dirty" id="file-dirty" hidden></span>
+        <span class="chev" data-icon="chevronDown"></span>
+      </button>
+
+      <div class="topbar-spacer"></div>
+
+      <button class="btn ghost" id="btn-examples" title="Beispiele"><span data-icon="book"></span><span class="btn-label">Beispiele</span></button>
+      <button class="btn ghost" id="btn-share" title="Als Link teilen"><span data-icon="share"></span><span class="btn-label">Teilen</span></button>
+      <button class="btn" id="btn-export" title="Exportieren"><span data-icon="download"></span><span class="btn-label">Export</span><span class="chev" data-icon="chevronDown"></span></button>
+      <div class="render-group">
+        <button class="btn primary" id="btn-render" title="Rendern (⌘↵ oder F5)"><span data-icon="play"></span><span class="btn-label">Rendern</span></button>
+        <button class="btn icon toggle" id="btn-auto" title="Automatisch rendern beim Tippen" aria-pressed="true"><span data-icon="zap"></span></button>
+      </div>
+      <button class="btn icon ghost" id="btn-theme" title="Hell/Dunkel umschalten"><span data-icon="moon"></span></button>
+      <button class="btn icon ghost" id="btn-menu" title="Mehr"><span data-icon="more"></span></button>
+    </header>
+
+    <main class="workspace" id="workspace">
+      <section class="pane editor-pane glass" id="editor-pane" data-tab="code">
+        <div class="editor-stack">
+          <div class="code-host" id="code-host"></div>
+          <div class="blocks-wrap" id="blocks-wrap" hidden>
+            <div class="blocks-host" id="blocks-host"></div>
+            <div class="blocks-loading" id="blocks-loading"><div class="spinner"></div><span>Baukasten wird geladen …</span></div>
+            <div class="blocks-bar">
+              <button class="chip-btn" id="btn-blocks-code" title="Erzeugten Code anzeigen"><span data-icon="code"></span><span>Code ansehen</span></button>
+              <button class="chip-btn" id="btn-blocks-tidy" title="Blöcke ordentlich anordnen"><span data-icon="grid"></span><span>Aufräumen</span></button>
+              <button class="chip-btn" id="btn-blocks-convert" title="Erzeugten Code im Code-Modus weiterbearbeiten"><span data-icon="wand"></span><span>Als Code bearbeiten</span></button>
+            </div>
+            <div class="blocks-code glass" id="blocks-code" hidden>
+              <div class="blocks-code-head"><span data-icon="code"></span><span>Erzeugter OpenSCAD-Code</span><button class="btn icon ghost small" id="btn-blocks-code-copy" title="Kopieren"><span data-icon="copy"></span></button><button class="btn icon ghost small" id="btn-blocks-code-close" title="Schließen"><span data-icon="x"></span></button></div>
+              <pre class="blocks-code-body cm-s-formwerk" id="blocks-code-body"></pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="splitter-h" id="splitter-h" title="Ziehen zum Anpassen"></div>
+
+        <div class="console" id="console">
+          <div class="console-head">
+            <button class="console-tab active" data-ctab="log"><span data-icon="terminal"></span><span>Konsole</span><span class="cbadge err" id="badge-err" hidden></span><span class="cbadge warn" id="badge-warn" hidden></span></button>
+            <button class="console-tab" data-ctab="files"><span data-icon="layers"></span><span>Dateien</span><span class="cbadge" id="badge-files" hidden></span></button>
+            <div class="console-spacer"></div>
+            <label class="console-check" title="Statistiken von OpenSCAD anzeigen"><input type="checkbox" id="show-stats"><span>Details</span></label>
+            <button class="btn icon ghost small" id="btn-console-clear" title="Leeren"><span data-icon="trash"></span></button>
+            <button class="btn icon ghost small" id="btn-console-toggle" title="Ein-/ausklappen"><span data-icon="panelBottom"></span></button>
+          </div>
+          <div class="console-body" id="console-log" tabindex="0"></div>
+          <div class="console-body files-body" id="console-files" hidden></div>
+        </div>
+      </section>
+
+      <div class="splitter-v" id="splitter-v" title="Ziehen zum Anpassen"></div>
+
+      <section class="pane viewer-pane glass" id="viewer-pane">
+        <div class="viewer-host" id="viewer-host"></div>
+
+        <div class="vt vt-views" id="vt-views">
+          <button class="vt-btn" data-view="iso" title="Isometrisch (0)">Iso</button>
+          <button class="vt-btn" data-view="top" title="Von oben (7)">Oben</button>
+          <button class="vt-btn" data-view="front" title="Von vorne (1)">Vorne</button>
+          <button class="vt-btn" data-view="right" title="Von rechts (3)">Rechts</button>
+          <button class="vt-btn more" id="btn-views-more" title="Weitere Ansichten"><span data-icon="chevronDown"></span></button>
+        </div>
+
+        <div class="vt vt-tools" id="vt-tools">
+          <button class="vt-btn icon" id="vt-fit" title="Einpassen (F)"><span data-icon="focus"></span></button>
+          <span class="vt-sep"></span>
+          <button class="vt-btn icon" data-opt="grid" title="Raster"><span data-icon="grid"></span></button>
+          <button class="vt-btn icon" data-opt="axes" title="Achsen"><span data-icon="axes"></span></button>
+          <button class="vt-btn icon" data-opt="edges" title="Kanten"><span data-icon="edges"></span></button>
+          <button class="vt-btn icon" data-opt="wireframe" title="Drahtgitter"><span data-icon="globe"></span></button>
+          <button class="vt-btn icon text" data-opt="ortho" title="Orthografisch / Perspektive (5)">Ortho</button>
+          <span class="vt-sep"></span>
+          <button class="vt-btn icon" id="vt-shot" title="Bild speichern (PNG)"><span data-icon="camera"></span></button>
+          <button class="vt-btn icon" id="vt-params" title="Parameter ein-/ausblenden"><span data-icon="sliders"></span><span class="vt-count" id="params-count" hidden></span></button>
+        </div>
+
+        <div class="hud" id="hud" hidden>
+          <span data-icon="ruler"></span>
+          <span class="hud-dims" id="hud-dims"></span>
+        </div>
+
+        <div class="viewer-state" id="viewer-state" hidden></div>
+
+        <div class="render-chip" id="render-chip" hidden>
+          <div class="spinner small"></div>
+          <span id="render-chip-text">Rendere …</span>
+          <button class="render-cancel" id="btn-cancel" title="Abbrechen (Esc)"><span data-icon="stop"></span></button>
+        </div>
+
+        <div class="boot" id="boot">
+          <div class="boot-card">
+            <div class="boot-cube" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="boot-title">OpenSCAD wird geladen</div>
+            <div class="boot-sub" id="boot-sub">WebAssembly · einmalig ca. 11 MB, danach aus dem Cache</div>
+            <div class="progress"><div class="progress-bar" id="boot-bar"></div></div>
+          </div>
+        </div>
+
+        <aside class="params glass" id="params-panel">
+          <div class="params-head">
+            <span data-icon="sliders"></span>
+            <span class="params-title">Parameter</span>
+            <button class="btn icon ghost small" id="btn-params-close" title="Ausblenden"><span data-icon="x"></span></button>
+          </div>
+          <div class="params-body" id="params-body"></div>
+        </aside>
+      </section>
+    </main>
+
+    <footer class="statusbar" id="statusbar">
+      <div class="status-left">
+        <span class="status" id="status"><i></i><span id="status-text">Bereit</span></span>
+      </div>
+      <div class="status-right">
+        <span id="status-tris"></span>
+        <span class="dot" id="status-dot1" hidden></span>
+        <span id="status-version">OpenSCAD</span>
+        <span class="dot"></span>
+        <span class="status-local" title="Alles läuft in deinem Browser – nichts wird hochgeladen"><span data-icon="wifiOff"></span>Lokal im Browser</span>
+      </div>
+    </footer>
+  </div>
+
+  <nav class="mobile-tabs glass" id="mobile-tabs">
+    <button data-mtab="editor" class="active"><span data-icon="code"></span><span>Editor</span></button>
+    <button data-mtab="viewer"><span data-icon="box"></span><span>3D</span></button>
+    <button data-mtab="params"><span data-icon="sliders"></span><span>Parameter</span></button>
+  </nav>
+
+  <div class="drop-overlay" id="drop-overlay" hidden>
+    <div class="drop-card">
+      <div class="drop-icon" data-icon="upload"></div>
+      <div class="drop-title">Loslassen zum Öffnen</div>
+      <div class="drop-sub">.scad öffnen · STL, SVG, DXF, PNG als Datei für import()</div>
+    </div>
+  </div>
+  <input type="file" id="file-input" accept=".scad,.json,.txt" hidden>
+  <input type="file" id="attach-input" multiple hidden>
+  <div id="layer"></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>
