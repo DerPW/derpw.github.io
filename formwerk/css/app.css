@@ -599,7 +599,8 @@ button.log-loc:hover { color: var(--accent); background: var(--accent-soft); }
 /* ---------------------------------------------------------- Customizer */
 
 .params {
-  position: absolute; top: 60px; right: 12px; bottom: 12px; z-index: 5; width: 300px; max-width: calc(100% - 24px);
+  /* über ViewCube, Werkzeugleisten und Maßen – auf dem Handy schiebt sich das Blatt darüber */
+  position: absolute; top: 60px; right: 12px; bottom: 12px; z-index: 7; width: 300px; max-width: calc(100% - 24px);
   display: flex; flex-direction: column; border-radius: 18px; background: var(--glass-strong);
   transition: transform .45s var(--spring), opacity .3s;
 }

@@ -36,14 +36,14 @@ export function createAppleUI({ viewer, viewerPane, editorPane, paramsPanel, spl
       paramsPanel.style.transform = x ? `translateX(${x}px)` : '';
       layout(true);
     },
-    onRest: (x) => { paramsPanel.style.visibility = x > 1 ? 'hidden' : ''; },
+    onRest: (x) => { if (!isMobile()) paramsPanel.style.visibility = x > 1 ? 'hidden' : ''; },
   });
   function setInspector(open, { immediate = false } = {}) {
     inspectorOpen = open;
     paramsPanel.style.visibility = '';
     const target = open ? 0 : closedX();
     if (immediate) inspector.set(target); else inspector.to(target);
-    if (immediate && !open) paramsPanel.style.visibility = 'hidden';
+    if (immediate && !open && !isMobile()) paramsPanel.style.visibility = 'hidden';
   }
 
   /* --------------------------------------------------- Seitenleiste */
@@ -57,7 +57,7 @@ export function createAppleUI({ viewer, viewerPane, editorPane, paramsPanel, spl
       layout(true);
     },
     onRest: (x) => {
-      document.documentElement.classList.toggle('sidebar-hidden', x < -1);
+      if (!isMobile()) document.documentElement.classList.toggle('sidebar-hidden', x < -1);
       onSidebar?.(x >= -1);
     },
   });
@@ -159,9 +159,27 @@ export function createAppleUI({ viewer, viewerPane, editorPane, paramsPanel, spl
     return { left, right, top: TOOLBAR, bottom: 62 };
   }
 
+  // Handy und Desktop teilen dieselben Elemente: beim Wechsel die Inline-Stile der jeweils anderen Ansicht ablegen
+  let wasMobile = null;
+  function syncMode() {
+    const mobile = isMobile();
+    if (mobile === wasMobile) return;
+    wasMobile = mobile;
+    if (mobile) {
+      for (const el of [editorPane, splitter, paramsPanel]) { el.style.transform = ''; el.style.visibility = ''; }
+      document.documentElement.classList.remove('sidebar-hidden');
+    } else {
+      paramsPanel.style.transform = inspector.value ? `translateX(${inspector.value}px)` : '';
+      paramsPanel.style.visibility = inspector.value > 1 ? 'hidden' : '';
+      editorPane.style.transform = splitter.style.transform = sidebar.value ? `translateX(${sidebar.value}px)` : '';
+      document.documentElement.classList.toggle('sidebar-hidden', sidebar.value < -1);
+    }
+  }
+
   function layout(immediate = false) {
     const ins = insets();
     if (!ins) return;
+    syncMode();
     viewerPane.style.setProperty('--free-l', `${ins.left}px`);
     viewerPane.style.setProperty('--free-r', `${ins.right}px`);
     viewerPane.classList.toggle('free-narrow', viewerPane.clientWidth - ins.left - ins.right < 560);
@@ -179,6 +197,7 @@ export function createAppleUI({ viewer, viewerPane, editorPane, paramsPanel, spl
 
   function activate({ sidebarOpen: so = true, paramsOpen = true } = {}) {
     reset();
+    wasMobile = null;
     setSidebar(so, { immediate: true });
     setInspector(paramsOpen, { immediate: true });
     requestAnimationFrame(() => {
