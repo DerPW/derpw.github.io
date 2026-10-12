@@ -104,6 +104,7 @@ export class Viewer extends EventTarget {
     const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target).normalize();
     this.camLight.position.copy(dir).add(new THREE.Vector3(-0.35, -0.2, 0.6)).normalize();
     this.renderer.render(this.scene, this.camera);
+    this.dispatchEvent(new Event('render'));
   }
 
   resize() {
@@ -457,6 +458,34 @@ export class Viewer extends EventTarget {
   }
 
   view(name) { this.fit(name, true); }
+
+  // Nur drehen (ViewCube): Ziel und Abstand bleiben, die Kamera schaut aus Richtung dir
+  viewDirection(dir, animate = true) {
+    let d = new THREE.Vector3(...dir).normalize();
+    // Senkrecht von oben/unten: minimal neigen, damit Z als „oben“ eindeutig bleibt
+    if (Math.abs(d.z) > 0.9999) d = new THREE.Vector3(0, -1e-4, Math.sign(d.z)).normalize();
+    const target = this.controls.target.clone();
+    const dist = this.camera.position.distanceTo(target);
+    this.tweenTo(target.clone().add(d.multiplyScalar(dist)), target, animate);
+  }
+
+  // Ziehen am ViewCube: um die Z-Achse und die Kamera-Querachse drehen
+  orbitBy(dx, dy) {
+    this.cancelTween();
+    const target = this.controls.target;
+    const offset = this.camera.position.clone().sub(target);
+    const Z = new THREE.Vector3(0, 0, 1);
+    offset.applyAxisAngle(Z, -dx * 0.012);
+    const right = new THREE.Vector3().crossVectors(offset, Z).normalize();
+    const tilted = offset.clone().applyAxisAngle(right, dy * 0.012);
+    const polar = tilted.angleTo(Z);
+    if (polar > 0.02 && polar < Math.PI - 0.02) offset.copy(tilted);
+    this.camera.position.copy(target).add(offset);
+    this.camera.lookAt(target);
+    this.controls.update();
+    this.updateOrtho();
+    this.requestRender();
+  }
 
   tweenTo(pos, target, animate) {
     const cam = this.camera;

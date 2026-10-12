@@ -296,9 +296,8 @@
   background: var(--material-chrome); border: 0; box-shadow: var(--inset), var(--shadow-sm);
   backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
-/* Ansichten oben in der freien Fläche, Werkzeuge unten – beide mittig zur freien Fläche */
-[data-ui="apple"] .vt-views, [data-ui="apple"] .vt-tools { left: calc(var(--free-l, 0px) + (100% - var(--free-l, 0px) - var(--free-r, 0px)) / 2); right: auto; transform: translateX(-50%); }
-[data-ui="apple"] .vt-views { top: calc(var(--toolbar-h) + 6px); bottom: auto; }
+/* Werkzeuge unten, mittig zur freien Fläche */
+[data-ui="apple"] .vt-tools { left: calc(var(--free-l, 0px) + (100% - var(--free-l, 0px) - var(--free-r, 0px)) / 2); right: auto; transform: translateX(-50%); }
 [data-ui="apple"] .viewer-pane.free-narrow .vt-tools [data-opt="axes"], [data-ui="apple"] .viewer-pane.free-narrow .vt-tools [data-opt="wireframe"],
 [data-ui="apple"] .viewer-pane.free-narrow .vt-tools .vt-sep:first-of-type { display: none; }
 [data-ui="apple"] .vt-btn { height: 32px; min-width: 32px; border-radius: 16px; font-weight: 590; font-size: 12px; letter-spacing: -.003em; color: var(--text-2); }
@@ -321,6 +320,12 @@
 [data-ui="apple"] .boot-title { font: 650 17px/1.2 var(--font-display); letter-spacing: -.02em; }
 [data-ui="apple"] .progress-bar { background: var(--accent); }
 [data-ui="apple"] .spinner { background: conic-gradient(from 0deg, transparent, var(--accent)); }
+
+/* ViewCube oben rechts in der freien Fläche */
+[data-ui="apple"] .viewcube { left: auto; right: calc(var(--free-r, 0px) + 4px); top: calc(var(--toolbar-h) + 2px); --vc-bg: rgba(58, 58, 62, .82); --vc-edge: rgba(255, 255, 255, .14); }
+[data-ui="apple"][data-theme="light"] .viewcube { --vc-bg: rgba(255, 255, 255, .88); --vc-edge: rgba(0, 0, 0, .1); }
+[data-ui="apple"] .vc-face { border-radius: 9px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+[data-ui="apple"] .vc-label { font-weight: 650; letter-spacing: .04em; font-size: 9.5px; }
 
 /* Inspektor (Parameter): schwebt rechts, Feder steuert das Ein- und Ausfahren (JS) */
 [data-ui="apple"] .params {
@@ -452,10 +457,9 @@
   [data-ui="apple"] #btn-params-close { display: none; }
   [data-ui="apple"] .params-body { touch-action: pan-y; padding-bottom: 100px; }
   [data-ui="apple"] .vt { bottom: auto; top: calc(var(--toolbar-h) + 4px); transform: none; }
-  [data-ui="apple"] .vt-views { left: 8px; right: auto; }
   [data-ui="apple"] .vt-tools { right: 8px; left: auto; }
   [data-ui="apple"] .vt-tools [data-opt="axes"], [data-ui="apple"] .vt-tools [data-opt="wireframe"], [data-ui="apple"] .vt-tools .vt-sep { display: none; }
-  [data-ui="apple"] .vt-views [data-view="right"], [data-ui="apple"] .vt-views [data-view="front"] { display: none; }
+  [data-ui="apple"] .viewcube { right: auto; left: 4px; top: calc(var(--toolbar-h) + 2px); }
   [data-ui="apple"] .render-chip { bottom: auto; }
   [data-ui="apple"] .hud { display: none; }
   [data-ui="apple"] .render-chip { top: calc(var(--toolbar-h) + 52px); left: 50%; }

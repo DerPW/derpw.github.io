@@ -14,6 +14,7 @@ import { shareUrl, readHashToken, decodeProject } from './share.js';
 import { listFiles, putFile, deleteFile } from './store.js';
 import { OPENSCAD_VERSION } from '../vendor/openscad/version.js';
 import { createAppleUI, isApple } from './apple.js';
+import { ViewCube } from './viewcube.js';
 
 const APP_URL = new URL('..', import.meta.url);
 const mq = matchMedia('(max-width: 860px)');
@@ -1104,16 +1105,8 @@ function toggleViewOpt(key) {
   saveSettings();
   syncViewerButtons();
 }
-$$('#vt-views [data-view]').forEach((b) => b.addEventListener('click', () => viewer.view(b.dataset.view)));
-bindMenu($('#btn-views-more'), (anchor) => menu(0, 0, [
-  { label: 'Iso', icon: 'box', action: () => viewer.view('iso') },
-  { label: 'Oben', icon: 'chevronRight', action: () => viewer.view('top') },
-  { label: 'Unten', icon: 'chevronRight', action: () => viewer.view('bottom') },
-  { label: 'Vorne', icon: 'chevronRight', action: () => viewer.view('front') },
-  { label: 'Hinten', icon: 'chevronRight', action: () => viewer.view('back') },
-  { label: 'Links', icon: 'chevronRight', action: () => viewer.view('left') },
-  { label: 'Rechts', icon: 'chevronRight', action: () => viewer.view('right') },
-], { anchor }));
+new ViewCube(els.viewerPane, viewer);
+$('#vt-iso').onclick = () => viewer.view('iso');
 $('#vt-fit').onclick = () => viewer.fit(undefined, true);
 $('#vt-shot').onclick = () => exportAs('png');
 $('#vt-params').onclick = () => setParamsOpen(!settings.paramsOpen);
