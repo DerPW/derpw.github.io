@@ -24,9 +24,9 @@ export class Viewer extends EventTarget {
     this.bounds = null;
     this.dim = 0;
     this.needsRender = true;
-    // Platz rechts/unten (Parameter-Panel) – das Modell rückt in die freie Fläche
-    this.inset = { r: 0, b: 0 };
-    this.insetTarget = { r: 0, b: 0 };
+    // Verdeckte Ränder (Seitenleiste, Panels, Werkzeugleiste) – das Modell rückt in die freie Fläche
+    this.inset = { l: 0, t: 0, r: 0, b: 0 };
+    this.insetTarget = { l: 0, t: 0, r: 0, b: 0 };
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -80,7 +80,7 @@ export class Viewer extends EventTarget {
     const loop = () => {
       requestAnimationFrame(loop);
       let shifted = false;
-      for (const k of ['r', 'b']) {
+      for (const k of ['l', 't', 'r', 'b']) {
         const d = this.insetTarget[k] - this.inset[k];
         if (!d) continue;
         this.inset[k] = Math.abs(d) < 0.5 ? this.insetTarget[k] : this.inset[k] + d * 0.22;
@@ -115,41 +115,53 @@ export class Viewer extends EventTarget {
     this.applyProjection();
   }
 
-  setInsets({ right = 0, bottom = 0 } = {}) {
-    this.insetTarget = { r: Math.max(0, right), b: Math.max(0, bottom) };
+  setInsets({ left = 0, top = 0, right = 0, bottom = 0 } = {}, { immediate = false } = {}) {
+    this.insetTarget = { l: Math.max(0, left), t: Math.max(0, top), r: Math.max(0, right), b: Math.max(0, bottom) };
+    if (immediate) {
+      this.inset = { ...this.insetTarget };
+      this.applyProjection();
+    }
     this.requestRender();
   }
 
   // Sichtbarer Ausschnitt: Bei Insets wird ein größeres Bild berechnet und nur ein Teil gezeigt,
-  // so liegt die Bildmitte in der freien Fläche neben bzw. über dem Panel.
+  // so liegt die Bildmitte in der freien Fläche zwischen den Panels.
   frame(target = false) {
     const w = Math.max(1, this.container.clientWidth);
     const hgt = Math.max(1, this.container.clientHeight);
     const src = target ? this.insetTarget : this.inset;
-    const r = Math.min(src.r, w * 0.45), b = Math.min(src.b, hgt * 0.6);
-    return { w, h: hgt, r, b, fullW: w + r, fullH: hgt + b };
+    let l = src.l, r = src.r, t = src.t, b = src.b;
+    // Nie mehr als 70 % verdecken
+    const sx = Math.min(1, (w * 0.7) / Math.max(1, l + r)), sy = Math.min(1, (hgt * 0.7) / Math.max(1, t + b));
+    l *= sx; r *= sx; t *= sy; b *= sy;
+    const dx = (l - r) / 2, dy = (t - b) / 2;
+    return {
+      w, h: hgt, l, r, t, b,
+      fullW: w + 2 * Math.abs(dx), fullH: hgt + 2 * Math.abs(dy),
+      x: Math.abs(dx) - dx, y: Math.abs(dy) - dy,
+    };
   }
 
   applyProjection() {
-    const { w, h, r, b, fullW, fullH } = this.frame();
-    const off = r > 0.5 || b > 0.5;
+    const { w, h, fullW, fullH, x, y } = this.frame();
+    const off = fullW - w > 0.5 || fullH - h > 0.5;
     this.persp.aspect = fullW / fullH;
-    // Die Höhe wächst mit dem unteren Inset → Blickwinkel anpassen, damit die Größe gleich bleibt
+    // Größeres Gesamtbild → Blickwinkel so anpassen, dass der Maßstab gleich bleibt
     this.persp.fov = 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(35 / 2)) * fullH / h));
-    if (off) this.persp.setViewOffset(fullW, fullH, r, b, w, h); else this.persp.clearViewOffset();
+    if (off) this.persp.setViewOffset(fullW, fullH, x, y, w, h); else this.persp.clearViewOffset();
     this.persp.updateProjectionMatrix();
     this.updateOrtho();
     this.requestRender();
   }
 
   updateOrtho() {
-    const { w, h, r, b, fullW, fullH } = this.frame();
+    const { w, h, fullW, fullH, x, y } = this.frame();
     // Ortho-Ausschnitt aus dem Abstand der Perspektivkamera ableiten
     const dist = this.camera.position.distanceTo(this.controls?.target ?? new THREE.Vector3());
     const halfH = Math.tan(THREE.MathUtils.degToRad(35 / 2)) * dist * (fullH / h);
     const halfW = halfH * (fullW / fullH);
     Object.assign(this.orthoCam, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
-    if (r > 0.5 || b > 0.5) this.orthoCam.setViewOffset(fullW, fullH, r, b, w, h); else this.orthoCam.clearViewOffset();
+    if (fullW - w > 0.5 || fullH - h > 0.5) this.orthoCam.setViewOffset(fullW, fullH, x, y, w, h); else this.orthoCam.clearViewOffset();
     this.orthoCam.updateProjectionMatrix();
   }
 
@@ -432,8 +444,8 @@ export class Viewer extends EventTarget {
     const fov = THREE.MathUtils.degToRad(35);
     const fr = this.frame(true);
     const half = (px) => Math.atan(Math.tan(fov / 2) * Math.max(40, px) / fr.h);
-    const fitH = r / Math.sin(half(fr.h - fr.b));
-    const fitW = r / Math.sin(half(fr.w - fr.r));
+    const fitH = r / Math.sin(half(fr.h - fr.t - fr.b));
+    const fitW = r / Math.sin(half(fr.w - fr.l - fr.r));
     const dist = Math.max(fitH, fitW) * 1.08;
     const dir = new THREE.Vector3(...v.dir).normalize();
     const pos = sphere.center.clone().add(dir.multiplyScalar(dist));

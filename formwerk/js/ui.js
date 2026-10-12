@@ -53,6 +53,7 @@ const ICONS = {
   layers: P('m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z') + P('m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65') + P('m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65'),
   wifiOff: P('M12 20h.01') + P('M8.5 16.429a5 5 0 0 1 7 0') + P('M5 12.859a10 10 0 0 1 5.17-2.69') + P('M19 12.859a10 10 0 0 0-2.007-1.523') + P('M2 8.82a15 15 0 0 1 4.177-2.643') + P('M22 8.82a15 15 0 0 0-11.288-3.764') + P('m2 2 20 20'),
   panelBottom: '<rect width="18" height="18" x="3" y="3" rx="2"/>' + P('M3 15h18'),
+  sidebar: '<rect width="18" height="18" x="3" y="3" rx="2"/>' + P('M9 3v18'),
   menu: P('M4 12h16') + P('M4 6h16') + P('M4 18h16'),
   more: C(12, 12, 1) + C(19, 12, 1) + C(5, 12, 1),
   github: P('M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4') + P('M9 18c-4.51 2-5-2-7-2'),
@@ -206,6 +207,7 @@ export function openModal({ title, subtitle = '', iconName = 'sparkles', body, f
       const i = modalStack.indexOf(api);
       if (i < 0) return;
       modalStack.splice(i, 1);
+      if (!modalStack.length) document.body.classList.remove('modal-open');
       backdrop.classList.add('leaving');
       setTimeout(() => backdrop.remove(), 200);
       prevFocus?.focus?.({ preventScroll: true });
@@ -215,6 +217,7 @@ export function openModal({ title, subtitle = '', iconName = 'sparkles', body, f
   backdrop.querySelector('.modal-x').onclick = api.close;
   backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) api.close(); });
   modalStack.push(api);
+  document.body.classList.add('modal-open');
   requestAnimationFrame(() => {
     const first = api.el.querySelector('[autofocus]') ?? api.el.querySelector('input:not([type=checkbox]):not([type=radio]):not([readonly]), textarea:not([readonly]), select');
     first?.focus();

@@ -2,14 +2,14 @@
 // Eigene Dateien: erst Netz (damit Updates sofort ankommen), sonst Cache.
 // Bibliotheken von jsDelivr: versioniert und unveränderlich → erst Cache.
 
-const CACHE = 'formwerk-6021908';
+const CACHE = 'formwerk-7731570';
 const LIB_CACHE = 'formwerk-libs-v1';
 
 const SHELL = [
-  './', 'index.html', 'css/app.css', 'manifest.webmanifest', 'assets/icon.svg',
+  './', 'index.html', 'css/app.css', 'css/apple.css', 'manifest.webmanifest', 'assets/icon.svg',
   'js/app.js', 'js/ui.js', 'js/runner.js', 'js/worker.js', 'js/engine.js', 'js/off.js', 'js/viewer.js', 'js/editor.js',
   'js/customizer.js', 'js/logparse.js', 'js/examples.js', 'js/fonts.js', 'js/libraries.js', 'js/share.js', 'js/store.js',
-  'js/scad-lang.js', 'js/blocks/blocks.js', 'js/blocks/generator.js',
+  'js/scad-lang.js', 'js/apple.js', 'js/motion.js', 'js/blocks/blocks.js', 'js/blocks/generator.js',
   'vendor/openscad/openscad.js', 'vendor/openscad/openscad.wasm', 'vendor/openscad/version.js',
   'vendor/three/three.js', 'vendor/codemirror/codemirror.js', 'vendor/codemirror/codemirror.css',
 ];
@@ -46,7 +46,9 @@ self.addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     try {
-      const res = await fetch(req);
+      // no-cache: immer beim Server nachfragen (ETag → meist nur 304), damit Updates sofort ankommen
+      // (Navigations-Anfragen dürfen nicht mit Optionen kopiert werden → über die URL)
+      const res = await (req.mode === 'navigate' ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req, { cache: 'no-cache' }));
       if (res.ok) cache.put(req, res.clone());
       return res;
     } catch {

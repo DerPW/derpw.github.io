@@ -157,10 +157,18 @@ function tweakMessages(B) {
 
 /* ------------------------------------------------------------ Themes */
 
-const STYLES = {
-  shape3d: '#7c6cf0', shape2d: '#2fa8e0', transform: '#f08c3c', combine: '#e9558a', extrude: '#22b58a',
-  loop: '#d9a520', logic: '#5b8def', math: '#3fae9e', text: '#9a7bd6', variable: '#f2694f',
-  procedure: '#b65fd6', extra: '#7d84a3', list: '#8a6ed8', colour: '#c7608a', variable_dynamic: '#f2694f',
+const PALETTES = {
+  glass: {
+    shape3d: '#7c6cf0', shape2d: '#2fa8e0', transform: '#f08c3c', combine: '#e9558a', extrude: '#22b58a',
+    loop: '#d9a520', logic: '#5b8def', math: '#3fae9e', text: '#9a7bd6', variable: '#f2694f',
+    procedure: '#b65fd6', extra: '#7d84a3', list: '#8a6ed8', colour: '#c7608a', variable_dynamic: '#f2694f',
+  },
+  // Apple-Systemfarben
+  apple: {
+    shape3d: '#5e5ce6', shape2d: '#0a84ff', transform: '#ff9f0a', combine: '#ff375f', extrude: '#30b0c7',
+    loop: '#a2845e', logic: '#6e6e73', math: '#34c759', text: '#d6a03c', variable: '#ff453a',
+    procedure: '#bf5af2', extra: '#8e8e93', list: '#5856d6', colour: '#ff2d55', variable_dynamic: '#ff453a',
+  },
 };
 
 function shade(hex, f) {
@@ -171,13 +179,13 @@ function shade(hex, f) {
   return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
 }
 
-function makeTheme(B, dark) {
+function makeTheme(B, dark, palette = 'glass') {
   const blockStyles = {}, categoryStyles = {};
-  for (const [k, c] of Object.entries(STYLES)) {
+  for (const [k, c] of Object.entries(PALETTES[palette])) {
     blockStyles[`${k}_blocks`] = { colourPrimary: c, colourSecondary: shade(c, 0.35), colourTertiary: shade(c, -0.25), hat: '' };
     categoryStyles[`${k}_category`] = { colour: c };
   }
-  return B.Theme.defineTheme(dark ? 'formwerk-dark' : 'formwerk-light', {
+  return B.Theme.defineTheme(`formwerk-${palette}-${dark ? 'dark' : 'light'}`, {
     base: B.Themes.Classic,
     blockStyles,
     categoryStyles,
@@ -206,7 +214,9 @@ function makeTheme(B, dark) {
       insertionMarkerOpacity: 0.2,
       cursorColour: '#5040c0',
     },
-    fontStyle: { family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif', weight: '600', size: 11.5 },
+    fontStyle: palette === 'apple'
+      ? { family: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif', weight: '590', size: 11.5 }
+      : { family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif', weight: '600', size: 11.5 },
     startHats: false,
   });
 }
@@ -354,18 +364,20 @@ export class BlockEditor {
     this.ws = null;
   }
 
-  async init(dark) {
+  async init(dark, palette = 'glass') {
     const B = await loadBlockly();
     this.B = B;
     this.gen = createGenerator(B);
-    this.themes = { dark: makeTheme(B, true), light: makeTheme(B, false) };
+    this.themes = {};
+    for (const p of Object.keys(PALETTES)) this.themes[p] = { dark: makeTheme(B, true, p), light: makeTheme(B, false, p) };
+    this.palette = palette;
     if (this.prompt) {
       B.dialog.setPrompt((message, def, cb) => this.prompt(message, def).then(cb));
     }
     this.ws = B.inject(this.host, {
       toolbox: TOOLBOX,
       renderer: 'zelos',
-      theme: dark ? this.themes.dark : this.themes.light,
+      theme: this.themes[palette][dark ? 'dark' : 'light'],
       media: BASE + 'media/',
       grid: { spacing: 28, length: 3, colour: dark ? 'rgba(255,255,255,.07)' : 'rgba(20,20,60,.08)', snap: false },
       zoom: { controls: true, wheel: true, startScale: 0.72, maxScale: 2, minScale: 0.3, scaleSpeed: 1.15, pinch: true },
@@ -382,7 +394,16 @@ export class BlockEditor {
       if (e.isUiEvent || this.loading) return;
       this.onChange?.();
     });
+    this.paintCategories();
     return this;
+  }
+
+  // Farbpunkte der Kategorien (Blockly setzt die Farbe als linken Rand, den wir ausblenden)
+  paintCategories() {
+    for (const el of this.host.querySelectorAll('.blocklyToolboxCategory')) {
+      const c = el.style.borderLeftColor;
+      if (c) el.style.setProperty('--cat', c);
+    }
   }
 
   variablesFlyout(ws) {
@@ -440,9 +461,11 @@ export class BlockEditor {
 
   resize() { if (this.ws) this.B.svgResize(this.ws); }
 
-  setTheme(dark) {
+  setTheme(dark, palette = this.palette) {
     if (!this.ws) return;
-    this.ws.setTheme(dark ? this.themes.dark : this.themes.light);
+    this.palette = palette;
+    this.ws.setTheme(this.themes[palette][dark ? 'dark' : 'light']);
+    requestAnimationFrame(() => this.paintCategories());
     // Rasterfarbe gehört nicht zum Theme
     for (const l of this.host.querySelectorAll('pattern line')) l.setAttribute('stroke', dark ? 'rgba(255,255,255,.07)' : 'rgba(20,20,60,.08)');
   }

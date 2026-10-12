@@ -217,6 +217,8 @@ body.ready .statusbar { animation-delay: .18s; }
 }
 .file-btn:hover, .file-btn.open { background: var(--panel-2); border-color: var(--border); }
 .file-btn > .ico:first-child { color: var(--accent); }
+#btn-sidebar, .file-sub, .sheet-grabber { display: none; }
+.file-titles { display: flex; flex-direction: column; min-width: 0; }
 .file-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; font-size: 13.5px; }
 .file-dirty { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); flex: none; }
 .chev { display: inline-flex; color: var(--text-3); }
@@ -403,7 +405,12 @@ li.CodeMirror-hint-active { background: var(--accent-soft); color: var(--text); 
 .blocklyToolboxSelected { background: var(--accent-soft) !important; }
 .blocklyToolboxCategoryLabel, .blocklyTreeLabel { font: 600 12.5px var(--font) !important; color: var(--text) !important; }
 .blocklyToolboxSelected .blocklyToolboxCategoryLabel { color: var(--text) !important; }
-.blocklyToolboxCategoryIcon { width: 12px !important; height: 12px !important; border-radius: 4px; margin: 0 8px 0 4px; background: var(--cat, var(--accent)); box-shadow: 0 0 10px -2px var(--cat, var(--accent)); }
+.blocklyToolboxCategoryIcon { display: none !important; }
+.blocklyToolboxCategoryLabel::before {
+  content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3.5px; margin: 0 9px 0 4px; vertical-align: -1px;
+  background: var(--cat, var(--accent)); box-shadow: 0 0 10px -2px var(--cat, var(--accent));
+}
+.blocklyToolboxSelected .blocklyToolboxCategoryLabel::before { box-shadow: 0 0 0 2px rgba(255, 255, 255, .5); }
 .blocklyTreeSeparator { border-bottom: 1px solid var(--border) !important; margin: 6px 4px !important; }
 .blocklyFlyoutBackground { fill-opacity: .94; }
 .blocklyFlyoutLabelText { fill: var(--text-2) !important; font: 600 11.5px var(--font) !important; }

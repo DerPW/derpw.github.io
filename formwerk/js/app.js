@@ -13,14 +13,16 @@ import { resolveLibraries, usedLibraries, LIBRARIES } from './libraries.js';
 import { shareUrl, readHashToken, decodeProject } from './share.js';
 import { listFiles, putFile, deleteFile } from './store.js';
 import { OPENSCAD_VERSION } from '../vendor/openscad/version.js';
+import { createAppleUI, isApple } from './apple.js';
 
 const APP_URL = new URL('..', import.meta.url);
+const mq = matchMedia('(max-width: 860px)');
 const abs = (rel) => new URL(rel, APP_URL).href;
 
 /* ------------------------------------------------------------- Zustand */
 
 const DEFAULTS = {
-  theme: 'dark', accent: 'violet', auto: true, delay: 450, fontSize: 13.5, modelColor: 'theme',
+  ui: 'glass', theme: 'dark', accent: 'violet', appleAccent: 'blue', sidebarOpen: true, sidebarW: 36, auto: true, delay: 450, fontSize: 13.5, modelColor: 'theme',
   viewer: { grid: true, axes: true, edges: true, wireframe: false, ortho: false },
   paramsOpen: true, consoleOpen: true, consoleH: 170, editorW: 44, autocomplete: true, wrap: false, stats: false,
 };
@@ -101,6 +103,22 @@ customizer.addEventListener('change', ({ detail }) => {
   }
 });
 customizer.setValues(doc.values[doc.mode]);
+
+const appleUI = createAppleUI({
+  viewer,
+  viewerPane: els.viewerPane,
+  editorPane: els.editorPane,
+  paramsPanel: $('#params-panel'),
+  splitter: $('#splitter-v'),
+  isMobile: () => mq.matches,
+  paramsVisible: () => customizer.count > 0 && (isMobile() || settings.paramsOpen),
+  onSidebar: () => { editor.refresh(); blockEditor?.resize(); },
+});
+$('#btn-sidebar').onclick = () => {
+  settings.sidebarOpen = !appleUI.sidebarOpen;
+  saveSettings();
+  appleUI.setSidebar(settings.sidebarOpen);
+};
 
 /* ------------------------------------------------------------ Rendern */
 
@@ -221,9 +239,22 @@ function setBusy(busy, text) {
   }
 }
 
+let lastStatus = { kind: '', text: '' };
 function setStatus(kind, text) {
+  lastStatus = { kind, text };
   els.status.className = `status ${kind}`;
   els.statusText.textContent = text;
+  paintSubtitle();
+}
+// Apple: Status und Maße unter dem Titel (wie die Aktivitätsanzeige in Xcode)
+function paintSubtitle() {
+  const sub = $('#file-sub');
+  const s = viewer.getSize();
+  const f = (n) => formatNumber(n, 1);
+  const dims = lastResult && s && (lastStatus.kind === 'ok' || lastStatus.kind === 'warn')
+    ? (lastResult.dim === 2 ? `${f(s.x)} × ${f(s.y)} mm` : `${f(s.x)} × ${f(s.y)} × ${f(s.z)} mm`) : '';
+  sub.className = `file-sub ${lastStatus.kind}`;
+  sub.textContent = dims ? `${lastStatus.text} · ${dims}` : lastStatus.text;
 }
 
 function showViewerState(kind, { title, text, corner } = {}) {
@@ -245,6 +276,7 @@ function updateHud() {
   els.hud.hidden = false;
   els.statusTris.textContent = lastResult.dim === 3 ? `${formatNumber(lastResult.mesh.triangles, 0)} Dreiecke` : '2D-Modell';
   els.statusDot1.hidden = false;
+  paintSubtitle();
 }
 
 /* ------------------------------------------------------------- Konsole */
@@ -393,11 +425,17 @@ $('#attach-input').onchange = (e) => { addAttachments([...e.target.files]); e.ta
 /* ------------------------------------------------------- Code/Baukasten */
 
 const modeSwitch = $('#mode-switch');
+let gliderPlaced = false;
 function placeGlider() {
   const active = modeSwitch.querySelector('.seg-btn.active');
   const glider = modeSwitch.querySelector('.seg-glider');
-  glider.style.width = `${active.offsetWidth}px`;
-  glider.style.transform = `translateX(${active.offsetLeft - 3}px)`;
+  if (isApple()) {
+    appleUI.glide(modeSwitch, glider, active.offsetLeft, active.offsetWidth, !gliderPlaced);
+  } else {
+    glider.style.width = `${active.offsetWidth}px`;
+    glider.style.transform = `translateX(${active.offsetLeft - 3}px)`;
+  }
+  gliderPlaced = active.offsetWidth > 0;
 }
 
 async function setMode(mode, { silent = false } = {}) {
@@ -436,7 +474,7 @@ function ensureBlocks() {
         onChange: () => onBlocksChange(),
         prompt: (message, def) => promptDialog(message, def),
       });
-      await be.init(document.documentElement.dataset.theme !== 'light');
+      await be.init(document.documentElement.dataset.theme !== 'light', isApple() ? 'apple' : 'glass');
       be.load(doc.blocks);
       blockEditor = be;
       els.blocksLoading.hidden = true;
@@ -666,7 +704,20 @@ async function renameFile() {
   updateFileState();
 }
 
-$('#btn-file').onclick = (e) => {
+function bindMenu(btn, open) {
+  btn.addEventListener('pointerdown', (e) => {
+    if (!isApple() || e.button !== 0 || e.pointerType === 'touch') return;
+    e.preventDefault();
+    btn.skipClick = true;
+    if (btn.classList.contains('open')) closeMenu(); else open(btn);
+  });
+  btn.addEventListener('click', () => {
+    if (btn.skipClick) { btn.skipClick = false; return; }
+    if (btn.classList.contains('open')) closeMenu(); else open(btn);
+  });
+}
+
+bindMenu($('#btn-file'), (anchor) => {
   const blocks = doc.mode === 'blocks';
   menu(0, 0, [
     { label: 'Neu', icon: 'filePlus', action: () => newProject() },
@@ -678,8 +729,8 @@ $('#btn-file').onclick = (e) => {
     !blocks && { label: 'Speichern unter …', icon: 'save', kbd: `⇧${MOD}S`, action: () => saveFile({ as: true }) },
     blocks && { label: 'Code als .scad speichern', icon: 'fileCode', action: () => downloadBlob(new Blob([generated], { type: 'text/plain' }), `${baseName()}.scad`) },
     { label: 'Umbenennen …', icon: 'fileCode', action: () => renameFile() },
-  ].filter(Boolean), { anchor: e.currentTarget });
-};
+  ].filter(Boolean), { anchor });
+});
 
 function newProject() {
   if (doc.mode === 'blocks') {
@@ -762,7 +813,7 @@ async function exportAs(kind) {
   }
 }
 
-$('#btn-export').onclick = (e) => {
+bindMenu($('#btn-export'), (anchor) => {
   const is2D = lastResult?.dim === 2;
   menu(0, 0, [
     { heading: is2D ? '2D-Modell' : '3D-Modell' },
@@ -774,8 +825,8 @@ $('#btn-export').onclick = (e) => {
     'sep',
     { label: 'Bild (PNG)', sub: 'Aktuelle Ansicht', icon: 'camera', action: () => exportAs('png') },
     { label: 'OpenSCAD-Code (.scad)', icon: 'fileCode', action: () => exportAs('scad') },
-  ].filter(Boolean), { anchor: e.currentTarget });
-};
+  ].filter(Boolean), { anchor });
+});
 
 /* ------------------------------------------------------------- Teilen */
 
@@ -862,6 +913,7 @@ $('#btn-examples').onclick = openExamples;
 /* ------------------------------------------------------- Einstellungen */
 
 const ACCENTS = { violet: 262, blue: 218, cyan: 190, green: 152, orange: 28, pink: 330 };
+const APPLE_ACCENTS = { blue: ['#0a84ff', 'Blau'], indigo: ['#5e5ce6', 'Indigo'], purple: ['#bf5af2', 'Lila'], pink: ['#ff375f', 'Pink'], orange: ['#ff9f0a', 'Orange'], green: ['#30d158', 'Grün'], teal: ['#40c8e0', 'Türkis'] };
 
 function applyTheme(animate = true) {
   const t = settings.theme === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : settings.theme;
@@ -869,12 +921,36 @@ function applyTheme(animate = true) {
     document.documentElement.classList.add('theme-anim');
     setTimeout(() => document.documentElement.classList.remove('theme-anim'), 500);
   }
-  document.documentElement.dataset.theme = t;
-  if (settings.accent && settings.accent !== 'violet') document.documentElement.dataset.accent = settings.accent;
-  else delete document.documentElement.dataset.accent;
-  document.querySelector('meta[name=theme-color]').content = t === 'light' ? '#eceef6' : '#08080d';
+  const root = document.documentElement;
+  root.dataset.theme = t;
+  root.dataset.ui = settings.ui === 'apple' ? 'apple' : 'glass';
+  if (settings.ui === 'apple') root.dataset.accent = settings.appleAccent || 'blue';
+  else if (settings.accent && settings.accent !== 'violet') root.dataset.accent = settings.accent;
+  else delete root.dataset.accent;
+  const apple = settings.ui === 'apple';
+  document.querySelector('meta[name=theme-color]').content = t === 'light' ? (apple ? '#f5f5f7' : '#eceef6') : (apple ? '#000000' : '#08080d');
   setIcon($('#btn-theme span'), t === 'light' ? 'sun' : 'moon');
-  blockEditor?.setTheme?.(t !== 'light');
+  blockEditor?.setTheme?.(t !== 'light', apple ? 'apple' : 'glass');
+}
+
+// Zwischen den Oberflächen „Glas“ und „Apple“ wechseln
+function setUI(ui) {
+  settings.ui = ui;
+  saveSettings();
+  applyTheme();
+  if (ui === 'apple') appleUI.activate({ sidebarOpen: settings.sidebarOpen, paramsOpen: settings.paramsOpen });
+  else appleUI.reset();
+  if (isMobile() && document.body.dataset.mtab === 'params' && ui === 'apple') setMobileTab('viewer');
+  setParamsOpen(settings.paramsOpen, { immediate: true });
+  gliderPlaced = false;
+  requestAnimationFrame(() => {
+    placeGlider();
+    editor.refresh();
+    blockEditor?.resize();
+    viewer.resize();
+    viewer.refreshTheme();
+    updateViewerInsets(true);
+  });
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (settings.theme === 'system') applyTheme(); });
 
@@ -891,8 +967,9 @@ function openSettings() {
   const body = h(`<div>
     <div class="set-section">
       <div class="set-title">Darstellung</div>
+      <div class="set-row"><div class="set-label"><b>Oberfläche</b><span>Zwei Gestaltungen zum Vergleichen</span></div>${pills('ui', [['glass', 'Glas'], ['apple', 'Apple']])}</div>
       <div class="set-row"><div class="set-label"><b>Design</b></div>${pills('theme', [['dark', 'Dunkel', 'moon'], ['light', 'Hell', 'sun'], ['system', 'System', 'monitor']])}</div>
-      <div class="set-row"><div class="set-label"><b>Akzentfarbe</b></div><div class="swatches">${Object.entries(ACCENTS).map(([k, hh]) => `<button class="swatch ${settings.accent === k ? 'active' : ''}" data-accent="${k}" style="--h:${hh}" title="${k}"></button>`).join('')}</div></div>
+      <div class="set-row"><div class="set-label"><b>Akzentfarbe</b></div><div class="swatches" id="set-swatches"></div></div>
       <div class="set-row"><div class="set-label"><b>Modellfarbe</b><span>Für Teile ohne color()</span></div>${pills('modelColor', [['theme', 'Akzent'], ['classic', 'OpenSCAD-Gelb'], ['gray', 'Grau']])}</div>
       <div class="set-row"><div class="set-label"><b>Animationen</b></div><label class="switch"><input type="checkbox" data-key="motion" ${settings.motion !== false ? 'checked' : ''}><span></span></label></div>
     </div>
@@ -908,6 +985,13 @@ function openSettings() {
       <div class="set-row"><div class="set-label"><b>Zeilen umbrechen</b></div>${sw('wrap')}</div>
     </div>
   </div>`);
+  const paintSwatches = () => {
+    const box = body.querySelector('#set-swatches');
+    box.innerHTML = settings.ui === 'apple'
+      ? Object.entries(APPLE_ACCENTS).map(([k, [c, n]]) => `<button class="swatch ${settings.appleAccent === k ? 'active' : ''}" data-accent="${k}" style="background:${c};--h:0" title="${n}"></button>`).join('')
+      : Object.entries(ACCENTS).map(([k, hh]) => `<button class="swatch ${settings.accent === k ? 'active' : ''}" data-accent="${k}" style="--h:${hh}" title="${k}"></button>`).join('');
+  };
+  paintSwatches();
   body.addEventListener('click', (e) => {
     const pill = e.target.closest('.pill');
     if (pill) {
@@ -916,10 +1000,11 @@ function openSettings() {
       settings[key] = isNaN(Number(raw)) ? raw : Number(raw);
       pill.parentElement.querySelectorAll('.pill').forEach((p) => p.classList.toggle('active', p === pill));
       applySetting(key);
+      if (key === 'ui') paintSwatches();
     }
     const swb = e.target.closest('.swatch');
     if (swb) {
-      settings.accent = swb.dataset.accent;
+      if (settings.ui === 'apple') settings.appleAccent = swb.dataset.accent; else settings.accent = swb.dataset.accent;
       body.querySelectorAll('.swatch').forEach((s) => s.classList.toggle('active', s === swb));
       applySetting('accent');
     }
@@ -937,6 +1022,7 @@ function applySetting(key) {
   saveSettings();
   switch (key) {
     case 'theme': case 'accent': applyTheme(); viewer.refreshTheme(); break;
+    case 'ui': setUI(settings.ui); break;
     case 'modelColor': viewer.setOption('color', settings.modelColor); break;
     case 'motion':
       if (settings.motion === false) document.documentElement.dataset.motion = 'off'; else delete document.documentElement.dataset.motion;
@@ -992,17 +1078,18 @@ function openAbout() {
   });
 }
 
-$('#btn-menu').onclick = (e) => {
+bindMenu($('#btn-menu'), (anchor) => {
   menu(0, 0, [
     { label: 'Beispiele', icon: 'book', action: openExamples },
     { label: 'Als Link teilen', icon: 'share', action: openShare },
     { label: 'Hell/Dunkel', icon: 'sun', action: () => $('#btn-theme').click() },
+    { label: settings.ui === 'apple' ? 'Oberfläche: Glas' : 'Oberfläche: Apple', sub: 'Zweite Gestaltung zum Vergleichen', icon: 'layers', action: () => setUI(settings.ui === 'apple' ? 'glass' : 'apple') },
     'sep',
     { label: 'Einstellungen', icon: 'settings', action: openSettings },
     { label: 'Tastenkürzel', icon: 'keyboard', kbd: '?', action: openShortcuts },
     { label: 'Über Formwerk', icon: 'info', action: openAbout },
-  ], { anchor: e.currentTarget });
-};
+  ], { anchor });
+});
 
 /* ------------------------------------------------------------ Ansicht */
 
@@ -1018,7 +1105,7 @@ function toggleViewOpt(key) {
   syncViewerButtons();
 }
 $$('#vt-views [data-view]').forEach((b) => b.addEventListener('click', () => viewer.view(b.dataset.view)));
-$('#btn-views-more').onclick = (e) => menu(0, 0, [
+bindMenu($('#btn-views-more'), (anchor) => menu(0, 0, [
   { label: 'Iso', icon: 'box', action: () => viewer.view('iso') },
   { label: 'Oben', icon: 'chevronRight', action: () => viewer.view('top') },
   { label: 'Unten', icon: 'chevronRight', action: () => viewer.view('bottom') },
@@ -1026,19 +1113,21 @@ $('#btn-views-more').onclick = (e) => menu(0, 0, [
   { label: 'Hinten', icon: 'chevronRight', action: () => viewer.view('back') },
   { label: 'Links', icon: 'chevronRight', action: () => viewer.view('left') },
   { label: 'Rechts', icon: 'chevronRight', action: () => viewer.view('right') },
-], { anchor: e.currentTarget });
+], { anchor }));
 $('#vt-fit').onclick = () => viewer.fit(undefined, true);
 $('#vt-shot').onclick = () => exportAs('png');
-$('#vt-params').onclick = () => setParamsOpen(els.viewerPane.classList.contains('params-hidden'));
+$('#vt-params').onclick = () => setParamsOpen(!settings.paramsOpen);
 $('#btn-params-close').onclick = () => (isMobile() ? setMobileTab('viewer') : setParamsOpen(false));
-function setParamsOpen(open) {
+function setParamsOpen(open, { immediate = false } = {}) {
   settings.paramsOpen = open;
   saveSettings();
   els.viewerPane.classList.toggle('params-hidden', !open);
   $('#vt-params').classList.toggle('on', open);
+  if (isApple()) appleUI.setInspector(open, { immediate });
   updateViewerInsets();
 }
-function updateViewerInsets() {
+function updateViewerInsets(immediate = false) {
+  if (isApple()) { appleUI.layout(immediate); return; }
   if (isMobile()) {
     const sheet = document.body.dataset.mtab === 'params' ? $('#params-panel').offsetHeight + 8 : 0;
     viewer.setInsets({ bottom: sheet });
@@ -1054,6 +1143,7 @@ viewer.addEventListener('bounds', () => updateHud());
 function initSplitters() {
   const ws = els.workspace;
   document.documentElement.style.setProperty('--editor-w', `${settings.editorW}%`);
+  document.documentElement.style.setProperty('--sidebar-w', `${settings.sidebarW}%`);
   document.documentElement.style.setProperty('--console-h', `${settings.consoleH}px`);
   els.console.classList.toggle('collapsed', !settings.consoleOpen);
 
@@ -1065,9 +1155,15 @@ function initSplitters() {
     document.body.classList.add('resizing');
     const rect = ws.getBoundingClientRect();
     const move = (ev) => {
-      const pct = Math.min(75, Math.max(22, ((ev.clientX - rect.left) / rect.width) * 100));
-      settings.editorW = Math.round(pct * 10) / 10;
-      document.documentElement.style.setProperty('--editor-w', `${settings.editorW}%`);
+      const pct = Math.round(Math.min(75, Math.max(isApple() ? 18 : 22, ((ev.clientX - rect.left) / rect.width) * 100)) * 10) / 10;
+      if (isApple()) {
+        settings.sidebarW = pct;
+        document.documentElement.style.setProperty('--sidebar-w', `${pct}%`);
+        updateViewerInsets(true);
+      } else {
+        settings.editorW = pct;
+        document.documentElement.style.setProperty('--editor-w', `${pct}%`);
+      }
     };
     const up = () => {
       v.classList.remove('dragging');
@@ -1109,9 +1205,9 @@ function initSplitters() {
   });
 }
 
-const mq = matchMedia('(max-width: 860px)');
 const isMobile = () => mq.matches;
 function setMobileTab(tab) {
+  if (tab === 'params' && isApple()) { tab = 'viewer'; appleUI.snapSheet('half'); }
   document.body.dataset.mtab = tab;
   $$('#mobile-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.mtab === tab));
   requestAnimationFrame(() => {
@@ -1129,6 +1225,7 @@ mq.addEventListener('change', () => {
 });
 
 new ResizeObserver(() => { blockEditor?.resize(); }).observe(els.blocksWrap);
+new ResizeObserver(() => { if (isApple()) updateViewerInsets(true); }).observe(els.viewerPane);
 
 /* ------------------------------------------------------ Drag & Drop */
 
@@ -1184,12 +1281,16 @@ $('#btn-cancel').onclick = () => { runner.cancel(); setBusy(false); setStatus('w
 /* ------------------------------------------------------------- Start */
 
 async function boot() {
+  // ?ui=apple bzw. ?ui=glass zum direkten Verlinken einer Oberfläche
+  const qUI = new URLSearchParams(location.search).get('ui');
+  if (qUI === 'apple' || qUI === 'glass') settings.ui = qUI;
   applyTheme(false);
   hydrateIcons();
   initSplitters();
   updateAutoButton();
   syncViewerButtons();
-  setParamsOpen(settings.paramsOpen);
+  if (isApple()) appleUI.activate({ sidebarOpen: settings.sidebarOpen, paramsOpen: settings.paramsOpen });
+  setParamsOpen(settings.paramsOpen, { immediate: true });
   setMobileTab('editor');
   updateFileState();
   $('#status-version').textContent = `OpenSCAD ${OPENSCAD_VERSION}`;

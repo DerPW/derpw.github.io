@@ -10,10 +10,13 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="stylesheet" href="vendor/codemirror/codemirror.css">
   <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/apple.css">
   <script>
     // Theme vor dem ersten Rendern setzen, damit nichts aufblitzt.
     try {
       const s = JSON.parse(localStorage.getItem('formwerk.settings') || '{}');
+      const q = new URLSearchParams(location.search).get('ui');
+      document.documentElement.dataset.ui = q === 'apple' || q === 'glass' ? q : (s.ui || 'glass');
       const t = s.theme || 'dark';
       document.documentElement.dataset.theme = t === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : t;
       if (s.accent) document.documentElement.dataset.accent = s.accent;
@@ -33,6 +36,7 @@
 
   <div class="app" id="app">
     <header class="topbar glass" id="topbar">
+      <button class="btn icon ghost" id="btn-sidebar" title="Seitenleiste ein-/ausblenden"><span data-icon="sidebar"></span></button>
       <div class="brand" title="Formwerk">
         <div class="brand-mark" data-icon="box"></div>
         <span class="brand-name">Formwerk</span>
@@ -46,7 +50,7 @@
 
       <button class="file-btn" id="btn-file" title="Datei">
         <span data-icon="fileCode"></span>
-        <span class="file-name" id="file-name">Unbenannt</span>
+        <span class="file-titles"><span class="file-name" id="file-name">Unbenannt</span><span class="file-sub" id="file-sub">Bereit</span></span>
         <span class="file-dirty" id="file-dirty" hidden></span>
         <span class="chev" data-icon="chevronDown"></span>
       </button>
@@ -148,6 +152,7 @@
         </div>
 
         <aside class="params glass" id="params-panel">
+          <div class="sheet-grabber" aria-hidden="true"></div>
           <div class="params-head">
             <span data-icon="sliders"></span>
             <span class="params-title">Parameter</span>
