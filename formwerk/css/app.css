@@ -480,7 +480,14 @@ button.log-loc:hover { color: var(--accent); background: var(--accent-soft); }
 
 /* ----------------------------------------------------------- Betrachter */
 
-.viewer-pane { background: var(--viewer-bg), var(--glass); }
+.viewer-pane { background: var(--viewer-bg), var(--glass); container: viewer / inline-size; }
+/* Schmale 3D-Ansicht: ViewCube links oben braucht Platz → seltene Werkzeuge ausblenden */
+@container viewer (max-width: 640px) {
+  .vt-tools [data-opt="axes"], .vt-tools [data-opt="wireframe"], .vt-tools #vt-shot, .vt-tools .vt-sep { display: none; }
+}
+@container viewer (max-width: 470px) {
+  .vt-tools [data-opt="edges"], .vt-tools [data-opt="ortho"] { display: none; }
+}
 .viewer-host { position: absolute; inset: 0; }
 .viewer-host canvas { display: block; outline: none; touch-action: none; }
 .viewer-pane.stale .viewer-host { opacity: .55; filter: saturate(.6); transition: opacity .3s, filter .3s; }
