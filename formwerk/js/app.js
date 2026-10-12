@@ -23,11 +23,13 @@ const abs = (rel) => new URL(rel, APP_URL).href;
 /* ------------------------------------------------------------- Zustand */
 
 const DEFAULTS = {
-  ui: 'glass', theme: 'dark', accent: 'violet', appleAccent: 'blue', sidebarOpen: true, sidebarW: 36, auto: true, delay: 450, fontSize: 13.5, modelColor: 'theme',
+  ui: 'apple', theme: 'dark', accent: 'violet', appleAccent: 'blue', sidebarOpen: true, sidebarW: 36, auto: true, delay: 450, fontSize: 13.5, modelColor: 'theme',
   viewer: { grid: true, axes: true, edges: true, wireframe: false, ortho: false },
   paramsOpen: true, consoleOpen: true, consoleH: 170, editorW: 44, autocomplete: true, wrap: false, stats: false,
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
+// Apple ist Standard – eine früher nur mitgespeicherte „Glas“-Einstellung gilt erst, wenn sie bewusst gewählt wurde
+if (!settings.uiChosen) settings.ui = 'apple';
 settings.viewer = { ...DEFAULTS.viewer, ...(settings.viewer ?? {}) };
 const saveSettings = () => store('settings', settings);
 
@@ -937,6 +939,7 @@ function applyTheme(animate = true) {
 // Zwischen den Oberflächen „Glas“ und „Apple“ wechseln
 function setUI(ui) {
   settings.ui = ui;
+  settings.uiChosen = true;
   saveSettings();
   applyTheme();
   if (ui === 'apple') appleUI.activate({ sidebarOpen: settings.sidebarOpen, paramsOpen: settings.paramsOpen });

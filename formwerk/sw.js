@@ -2,7 +2,7 @@
 // Eigene Dateien: erst Netz (damit Updates sofort ankommen), sonst Cache.
 // Bibliotheken von jsDelivr: versioniert und unveränderlich → erst Cache.
 
-const CACHE = 'formwerk-4fb8e68';
+const CACHE = 'formwerk-526a8db';
 const LIB_CACHE = 'formwerk-libs-v1';
 
 const SHELL = [
