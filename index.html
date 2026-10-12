@@ -5,23 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Taco · Projekte</title>
   <meta name="description" content="Kleine Tools, Spiele und Experimente – direkt im Browser.">
-  <meta name="theme-color" content="#08080d">
+  <meta name="theme-color" content="#e6ebf5">
+  <script>
+    // Design vor dem ersten Zeichnen setzen, damit nichts aufblitzt.
+    // Farben entsprechen --bg in style.css (hell / dunkel).
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('start.theme'); } catch (e) {}
+      if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', t);
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', t === 'dark' ? '#232838' : '#e6ebf5');
+    })();
+  </script>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="backdrop" aria-hidden="true">
-    <div class="blob b1"></div>
-    <div class="blob b2"></div>
-    <div class="blob b3"></div>
-    <div class="grain"></div>
-  </div>
-
   <main class="page">
     <header class="hero">
-      <div class="brand"><span class="brand-mark">T</span>Taco</div>
-      <h1>Projekte</h1>
-      <p class="lead">Kleine Tools, Spiele und Experimente – direkt im Browser, ohne Installation.</p>
+      <div class="topbar">
+        <div class="brand"><span class="brand-mark">T</span>Taco</div>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Hell/Dunkel umschalten" title="Hell/Dunkel umschalten">
+          <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+          <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+        </button>
+      </div>
+
+      <div class="hero-body">
+        <div class="hero-text">
+          <h1>Projekte</h1>
+          <p class="lead">Kleine Tools, Spiele und Experimente – direkt im Browser, ohne Installation.</p>
+        </div>
+        <div class="dial" id="dial" aria-hidden="true">
+          <div class="dial-groove"></div>
+          <div class="dial-dots" id="dial-dots"></div>
+          <div class="dial-core"><strong id="dial-count">7</strong><span>Projekte</span></div>
+        </div>
+      </div>
     </header>
 
     <section class="grid" id="projects">
@@ -104,7 +124,7 @@
     </section>
 
     <footer class="foot">
-      <span class="version">v4.0</span>
+      <span class="version">v5.0</span>
     </footer>
   </main>
 
