@@ -3,6 +3,9 @@
 
 import { MODULES, FUNCTIONS, KEYWORDS, ATOMS, SPECIALS, scanSymbols } from './scad-lang.js';
 import { esc, isMac } from './ui.js';
+import { t } from './i18n.js';
+
+const KIND = () => ({ modul: t('modul'), funktion: t('funktion'), wort: t('wort'), wert: t('wert'), spezial: t('spezial'), eigenes: t('eigenes'), eigene: t('eigene'), variable: t('variable') });
 
 const CM = window.CodeMirror;
 
@@ -191,8 +194,8 @@ export class Editor {
     for (const k of KEYWORDS) add(k, 'wort', '', '', false);
     for (const k of ATOMS) add(k, 'wert', '', '', false);
     for (const [k, doc] of Object.entries(SPECIALS)) add(k, 'spezial', '', doc, false);
-    for (const [k, sig] of syms.modules) add(k, 'eigenes', sig, 'Eigenes Modul', true);
-    for (const [k, sig] of syms.functions) add(k, 'eigene', sig, 'Eigene Funktion', true);
+    for (const [k, sig] of syms.modules) add(k, 'eigenes', sig, t('Eigenes Modul'), true);
+    for (const [k, sig] of syms.functions) add(k, 'eigene', sig, t('Eigene Funktion'), true);
     for (const k of syms.variables) if (k !== word) add(k, 'variable', '', '', false);
 
     const lw = word.toLowerCase();
@@ -210,13 +213,14 @@ export class Editor {
       .slice(0, 60);
     if (!matches.length || (matches.length === 1 && matches[0].text === word)) return null;
 
+    const kinds = KIND();
     return {
       from: CM.Pos(cur.line, start),
       to: CM.Pos(cur.line, cur.ch),
       list: matches.map((c) => ({
         text: c.text,
         render: (el) => {
-          el.innerHTML = `<span class="hint-kind hint-${c.kind}">${esc(c.kind)}</span><span class="hint-name">${esc(c.text)}</span>${c.sig || c.call ? `<span class="hint-sig">(${esc(c.sig)})</span>` : ''}${c.doc ? `<span class="hint-doc">${esc(c.doc)}</span>` : ''}`;
+          el.innerHTML = `<span class="hint-kind hint-${c.kind}">${esc(kinds[c.kind] ?? c.kind)}</span><span class="hint-name">${esc(c.text)}</span>${c.sig || c.call ? `<span class="hint-sig">(${esc(c.sig)})</span>` : ''}${c.doc ? `<span class="hint-doc">${esc(t(c.doc))}</span>` : ''}`;
         },
         hint: (cm, data, completion) => {
           const after = cm.getLine(data.to.line).slice(data.to.ch);

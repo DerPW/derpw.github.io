@@ -1,5 +1,7 @@
 // UI-Bausteine: Icons, Toasts, Modals, Menüs, kleine Helfer.
 
+import { t, locale } from './i18n.js';
+
 const P = (d) => `<path d="${d}"/>`;
 const C = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}"/>`;
 const ICONS = {
@@ -124,12 +126,12 @@ export function downloadBlob(blob, name) {
 
 export function formatNumber(n, digits = 2) {
   if (!Number.isFinite(n)) return '–';
-  return n.toLocaleString('de-DE', { maximumFractionDigits: digits });
+  return n.toLocaleString(locale(), { maximumFractionDigits: digits });
 }
 
 export function formatMs(ms) {
   if (ms < 1000) return `${Math.round(ms)} ms`;
-  if (ms < 60000) return `${(ms / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} s`;
+  if (ms < 60000) return `${(ms / 1000).toLocaleString(locale(), { maximumFractionDigits: 1 })} s`;
   const m = Math.floor(ms / 60000);
   return `${m} min ${Math.round((ms % 60000) / 1000)} s`;
 }
@@ -147,7 +149,7 @@ export function toast(message, { type = 'info', action, actionLabel, duration = 
         ${detail ? '<div class="toast-detail"></div>' : ''}
       </div>
       ${action ? `<button class="toast-action">${esc(actionLabel)}</button>` : ''}
-      <button class="toast-close" aria-label="Schließen">${icon('x')}</button>
+      <button class="toast-close" aria-label="${esc(t('Schließen'))}">${icon('x')}</button>
       ${duration ? `<div class="toast-timer" style="animation-duration:${duration}ms"></div>` : ''}
     </div>`);
   el.querySelector('.toast-msg').textContent = message;
@@ -184,7 +186,7 @@ export function openModal({ title, subtitle = '', iconName = 'sparkles', body, f
             <h2 class="modal-title">${esc(title)}</h2>
             ${subtitle ? `<p class="modal-sub">${esc(subtitle)}</p>` : ''}
           </div>
-          <button class="btn icon ghost modal-x" aria-label="Schließen">${icon('x')}</button>
+          <button class="btn icon ghost modal-x" aria-label="${esc(t('Schließen'))}">${icon('x')}</button>
         </header>
         <div class="modal-body"></div>
         ${footer ? '<footer class="modal-foot"></footer>' : ''}
@@ -231,7 +233,7 @@ export function closeTopModal() {
   return false;
 }
 
-export function confirmDialog({ title, message, confirmLabel = 'OK', cancelLabel = 'Abbrechen', danger = false, iconName = 'alert' }) {
+export function confirmDialog({ title, message, confirmLabel = 'OK', cancelLabel = t('Abbrechen'), danger = false, iconName = 'alert' }) {
   return new Promise((resolve) => {
     let done = false;
     const m = openModal({

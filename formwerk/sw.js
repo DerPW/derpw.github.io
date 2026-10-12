@@ -2,13 +2,13 @@
 // Eigene Dateien: erst Netz (damit Updates sofort ankommen), sonst Cache.
 // Bibliotheken von jsDelivr: versioniert und unveränderlich → erst Cache.
 
-const CACHE = 'formwerk-526a8db';
+const CACHE = 'formwerk-6f9a4a3';
 const LIB_CACHE = 'formwerk-libs-v1';
 
 const SHELL = [
   './', 'index.html', 'css/app.css', 'css/apple.css', 'manifest.webmanifest', 'assets/icon.svg',
   'js/app.js', 'js/ui.js', 'js/runner.js', 'js/worker.js', 'js/engine.js', 'js/off.js', 'js/viewer.js', 'js/editor.js',
-  'js/customizer.js', 'js/logparse.js', 'js/examples.js', 'js/fonts.js', 'js/libraries.js', 'js/share.js', 'js/store.js',
+  'js/customizer.js', 'js/logparse.js', 'js/examples.js', 'js/examples-en.js', 'js/i18n.js', 'js/i18n-en.js', 'js/fonts.js', 'js/libraries.js', 'js/share.js', 'js/store.js',
   'js/scad-lang.js', 'js/apple.js', 'js/motion.js', 'js/viewcube.js', 'js/blocks/blocks.js', 'js/blocks/generator.js',
   'vendor/openscad/openscad.js', 'vendor/openscad/openscad.wasm', 'vendor/openscad/version.js',
   'vendor/three/three.js', 'vendor/codemirror/codemirror.js', 'vendor/codemirror/codemirror.css',

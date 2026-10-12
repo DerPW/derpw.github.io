@@ -1,6 +1,10 @@
 // Beispiele für das Menü „Beispiele“. Alle mit Customizer-Parametern.
+// Englische Fassungen in examples-en.js (gleiche ids).
 
-export const EXAMPLES = [
+import { lang } from './i18n.js';
+import { EXAMPLES_EN } from './examples-en.js';
+
+export const EXAMPLES_DE = [
   {
     id: 'box',
     title: 'Box mit Deckel',
@@ -260,3 +264,5 @@ cube(20, center = true);
 `,
   },
 ];
+
+export const EXAMPLES = lang === 'en' ? EXAMPLES_DE.map((ex) => ({ ...ex, ...(EXAMPLES_EN[ex.id] ?? {}) })) : EXAMPLES_DE;

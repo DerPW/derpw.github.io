@@ -38,7 +38,7 @@ export function createEngine({ OpenSCAD, wasmModule, fetchFn = fetch }) {
       let data = fontCache.get(url);
       if (!data) {
         const res = await fetchFn(url);
-        if (!res.ok) throw new Error(`Schrift nicht geladen: ${url}`);
+        if (!res.ok) throw new Error(`Font not loaded: ${url}`);
         data = new Uint8Array(await res.arrayBuffer());
         fontCache.set(url, data);
       }

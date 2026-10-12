@@ -1,6 +1,7 @@
 // Übersetzt den Baukasten (Blockly-Arbeitsfläche) in OpenSCAD-Code.
 
 import { MODULES, FUNCTIONS, KEYWORDS, ATOMS } from '../scad-lang.js';
+import { t } from '../i18n.js';
 
 const RESERVED = new Set([...Object.keys(MODULES), ...Object.keys(FUNCTIONS), ...KEYWORDS, ...ATOMS]);
 const TRANSLIT = { ä: 'ae', ö: 'oe', ü: 'ue', Ä: 'Ae', Ö: 'Oe', Ü: 'Ue', ß: 'ss' };
@@ -209,7 +210,7 @@ export function createGenerator(Blockly) {
       if (b.outputConnection) continue; // lose Werte-Blöcke ignorieren
       main += G.blockToCode(b);
     }
-    const parts = ['// Erzeugt mit dem Formwerk-Baukasten\n'];
+    const parts = [`// ${t('Erzeugt mit dem Formwerk-Baukasten')}\n`];
     if (G.params_.length) parts.push(G.params_.join(''));
     if (G.defs_.length) parts.push(G.defs_.join('\n'));
     if (main.trim()) parts.push(main);

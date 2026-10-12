@@ -2,6 +2,7 @@
 // Aufträge nacheinander abarbeiten, laufende Aufträge abbrechen können.
 
 import { WASM_SIZE } from '../vendor/openscad/version.js';
+import { t } from './i18n.js';
 
 const WASM_URL = new URL('../vendor/openscad/openscad.wasm', import.meta.url);
 const WORKER_URL = new URL('./worker.js', import.meta.url);
@@ -24,7 +25,7 @@ export class Runner extends EventTarget {
   async load() {
     if (this.module) return;
     const res = await fetch(WASM_URL);
-    if (!res.ok) throw new Error(`OpenSCAD konnte nicht geladen werden (${res.status})`);
+    if (!res.ok) throw new Error(`${t('OpenSCAD konnte nicht geladen werden')} (${res.status})`);
     let bytes;
     if (res.body && res.body.getReader) {
       const reader = res.body.getReader();
@@ -68,11 +69,11 @@ export class Runner extends EventTarget {
     });
     w.addEventListener('error', (e) => {
       e.preventDefault?.();
-      if (!started) { fail(new Error(e.message || 'Der OpenSCAD-Thread konnte nicht starten.')); return; }
+      if (!started) { fail(new Error(e.message || t('Der OpenSCAD-Thread konnte nicht starten.'))); return; }
       if (w !== this.worker) return;
       const cur = this.current;
       this.spawn();
-      if (cur) this.finish(cur.id, { type: 'render', ok: false, crashed: true, logs: [`ERROR: Der OpenSCAD-Thread ist abgestürzt (${e.message || 'unbekannt'}).`] });
+      if (cur) this.finish(cur.id, { type: 'render', ok: false, crashed: true, logs: [`ERROR: ${t('Der OpenSCAD-Thread ist abgestürzt ({msg}).', { msg: e.message || '?' })}`] });
     });
     w.postMessage({ type: 'init', module: this.module });
   }

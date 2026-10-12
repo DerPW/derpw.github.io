@@ -3,6 +3,7 @@
 // Geänderte Werte gehen als -D name=wert an OpenSCAD.
 
 import { esc, h, icon } from './ui.js';
+import { t } from './i18n.js';
 
 export function toLiteral(v) {
   if (Array.isArray(v)) return `[${v.map(toLiteral).join(', ')}]`;
@@ -88,26 +89,26 @@ export class Customizer extends EventTarget {
     if (!this.params.length) {
       root.appendChild(h(`<div class="cz-empty">
         <div class="cz-empty-ico">${icon('sliders')}</div>
-        <div class="cz-empty-title">Keine Parameter</div>
-        <div class="cz-empty-text">Variablen oben im Code werden hier zu Reglern, z.&nbsp;B.<br><code>breite = 40; // [10:100]</code><br><code>/* [Gruppe] */</code> ordnet sie.</div>
+        <div class="cz-empty-title">${esc(t('Keine Parameter'))}</div>
+        <div class="cz-empty-text">${t('Variablen oben im Code werden hier zu Reglern, z.&nbsp;B.<br><code>breite = 40; // [10:100]</code><br><code>/* [Gruppe] */</code> ordnet sie.')}</div>
       </div>`));
       return;
     }
     const head = h(`<div class="cz-head">
-      <span class="cz-count">${this.params.length} Parameter</span>
-      <button class="btn ghost small cz-reset-all" ${Object.keys(this.values).length ? '' : 'disabled'}>${icon('rotate')}<span>Alle zurücksetzen</span></button>
+      <span class="cz-count">${esc(t('{n} Parameter', { n: this.params.length }))}</span>
+      <button class="btn ghost small cz-reset-all" ${Object.keys(this.values).length ? '' : 'disabled'}>${icon('rotate')}<span>${esc(t('Alle zurücksetzen'))}</span></button>
     </div>`);
     head.querySelector('.cz-reset-all').onclick = () => this.reset();
     root.appendChild(head);
 
     const groups = new Map();
     for (const p of this.params) {
-      const g = p.group || 'Parameter';
+      const g = p.group || 'Parameters';
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(p);
     }
     for (const [g, list] of groups) {
-      const label = g === 'Parameters' ? 'Parameter' : g;
+      const label = g === 'Parameters' ? t('Parameter') : g;
       const sec = h(`<section class="cz-group ${this.collapsed.has(g) ? 'collapsed' : ''}">
         <button class="cz-group-head">${icon('chevronDown')}<span>${esc(label)}</span><span class="cz-group-n">${list.length}</span></button>
         <div class="cz-group-body"></div>
@@ -127,7 +128,7 @@ export class Customizer extends EventTarget {
     const row = h(`<div class="cz-param ${p.name in this.values ? 'changed' : ''}" data-param="${esc(p.name)}">
       <div class="cz-label">
         <span class="cz-name" title="${esc(p.name)}">${esc(p.caption || prettyName(p.name))}</span>
-        <button class="cz-reset" title="Auf ${esc(toLiteral(p.initial))} zurücksetzen">${icon('rotate')}</button>
+        <button class="cz-reset" title="${esc(t('Auf {value} zurücksetzen', { value: toLiteral(p.initial) }))}">${icon('rotate')}</button>
       </div>
       <div class="cz-input"></div>
       ${p.caption ? `<div class="cz-var">${esc(p.name)}</div>` : ''}

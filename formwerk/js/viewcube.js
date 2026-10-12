@@ -2,14 +2,16 @@
 // auf Fläche, Kante oder Ecke in die passende Ansicht. Ziehen am Würfel dreht die Kamera.
 // Reines CSS-3D – scharfe Beschriftung, Klickflächen sind normale Elemente.
 
+import { t } from './i18n.js';
+
 const FACES = [
   // ex = Textrichtung rechts, ey = Textrichtung unten, ez = Außennormale (Welt, Z oben, vorne = −Y)
-  { label: 'Oben', ex: [1, 0, 0], ey: [0, -1, 0], ez: [0, 0, 1] },
-  { label: 'Unten', ex: [1, 0, 0], ey: [0, 1, 0], ez: [0, 0, -1] },
-  { label: 'Vorne', ex: [1, 0, 0], ey: [0, 0, -1], ez: [0, -1, 0] },
-  { label: 'Hinten', ex: [-1, 0, 0], ey: [0, 0, -1], ez: [0, 1, 0] },
-  { label: 'Rechts', ex: [0, 1, 0], ey: [0, 0, -1], ez: [1, 0, 0] },
-  { label: 'Links', ex: [0, -1, 0], ey: [0, 0, -1], ez: [-1, 0, 0] },
+  { label: t('Oben'), ex: [1, 0, 0], ey: [0, -1, 0], ez: [0, 0, 1] },
+  { label: t('Unten'), ex: [1, 0, 0], ey: [0, 1, 0], ez: [0, 0, -1] },
+  { label: t('Vorne'), ex: [1, 0, 0], ey: [0, 0, -1], ez: [0, -1, 0] },
+  { label: t('Hinten'), ex: [-1, 0, 0], ey: [0, 0, -1], ez: [0, 1, 0] },
+  { label: t('Rechts'), ex: [0, 1, 0], ey: [0, 0, -1], ez: [1, 0, 0] },
+  { label: t('Links'), ex: [0, -1, 0], ey: [0, 0, -1], ez: [-1, 0, 0] },
 ];
 
 const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];

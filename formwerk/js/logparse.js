@@ -1,5 +1,7 @@
 // Ordnet die Textausgabe von OpenSCAD in Meldungen mit Stufe, Datei und Zeile.
 
+import { t, lang } from './i18n.js';
+
 export const MAIN_FILE = '/input.scad';
 
 // Zeilen, die im Browser nur Lärm sind
@@ -45,7 +47,7 @@ export function parseLine(raw) {
   else if ((m = /^(?:ERROR|FATAL): ?(.*)$/s.exec(text))) { level = 'error'; msg = m[1]; }
   else if ((m = /^TRACE: ?(.*)$/s.exec(text))) { level = 'trace'; msg = m[1]; }
   else if (/^Can't parse file/.test(text)) { level = 'error'; }
-  else if (/^Current top level object is empty/.test(text)) { level = 'warning'; msg = 'Das Modell ist leer – es wurde nichts erzeugt.'; }
+  else if (/^Current top level object is empty/.test(text)) { level = 'warning'; msg = t('Das Modell ist leer – es wurde nichts erzeugt.'); }
   else if (STATS.some((r) => r.test(text))) { level = 'stat'; }
 
   let file = null, line = null;
@@ -56,13 +58,14 @@ export function parseLine(raw) {
   }
   if (file === MAIN_FILE) file = null;
   let original = null;
-  if (level === 'error' || level === 'warning') {
+  // OpenSCAD meldet auf Englisch – übersetzt wird nur für die deutsche Oberfläche
+  if ((level === 'error' || level === 'warning') && lang === 'de') {
     for (const [re, fn] of GERMAN) {
       const g = re.exec(msg);
       if (g) { original = msg; msg = fn(g); break; }
     }
   }
-  return { level, text: msg, file, line, original };
+  return { level, text: msg, file, line, original, empty: /^Current top level object is empty/.test(text) };
 }
 
 export function parseLog(lines) {

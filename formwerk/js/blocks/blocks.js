@@ -2,6 +2,7 @@
 // Blockly wird erst geladen, wenn man den Modus zum ersten Mal öffnet.
 
 import { createGenerator } from './generator.js';
+import { t, lang } from '../i18n.js';
 
 const BASE = new URL('../../vendor/blockly/', import.meta.url).href;
 
@@ -21,7 +22,7 @@ export function loadBlockly() {
     loading = (async () => {
       await script('blockly_compressed.js');
       await script('blocks_compressed.js');
-      await script('msg/de.js');
+      await script(lang === 'en' ? 'msg/en.js' : 'msg/de.js');
       const B = window.Blockly;
       setupBlockly(B);
       return B;
@@ -95,43 +96,43 @@ const STMT = { previousStatement: null, nextStatement: null, inputsInline: true 
 function defineBlocks(B) {
   const defs = [
     // Körper
-    { type: 'fw_cube', message0: '%1 Quader  B %2 T %3 H %4 zentriert %5', args0: [img('cube'), N('X'), N('Y'), N('Z'), CHECK()], style: 'shape3d_blocks', tooltip: 'Quader mit Breite, Tiefe und Höhe (cube)' },
-    { type: 'fw_sphere', message0: '%1 Kugel  Radius %2', args0: [img('sphere'), N('R')], style: 'shape3d_blocks', tooltip: 'Kugel (sphere)' },
-    { type: 'fw_cylinder', message0: '%1 Zylinder  Höhe %2 Radius %3 zentriert %4', args0: [img('cylinder'), N('H'), N('R'), CHECK()], style: 'shape3d_blocks', tooltip: 'Zylinder (cylinder)' },
-    { type: 'fw_cone', message0: '%1 Kegel  Höhe %2 Radius unten %3 oben %4 zentriert %5', args0: [img('cone'), N('H'), N('R1'), N('R2'), CHECK()], style: 'shape3d_blocks', tooltip: 'Kegel oder Kegelstumpf (cylinder mit r1/r2)' },
-    { type: 'fw_torus', message0: '%1 Ring  Radius %2 Dicke %3', args0: [img('torus'), N('R'), N('T')], style: 'shape3d_blocks', tooltip: 'Ring/Donut (Torus)' },
-    { type: 'fw_text3d', message0: '%1 3D-Text %2 Größe %3 Höhe %4', args0: [img('text'), T('TEXT'), N('S'), N('H')], style: 'shape3d_blocks', tooltip: 'Text als Körper' },
+    { type: 'fw_cube', message0: t('%1 Quader  B %2 T %3 H %4 zentriert %5'), args0: [img('cube'), N('X'), N('Y'), N('Z'), CHECK()], style: 'shape3d_blocks', tooltip: t('Quader mit Breite, Tiefe und Höhe (cube)') },
+    { type: 'fw_sphere', message0: t('%1 Kugel  Radius %2'), args0: [img('sphere'), N('R')], style: 'shape3d_blocks', tooltip: t('Kugel (sphere)') },
+    { type: 'fw_cylinder', message0: t('%1 Zylinder  Höhe %2 Radius %3 zentriert %4'), args0: [img('cylinder'), N('H'), N('R'), CHECK()], style: 'shape3d_blocks', tooltip: t('Zylinder (cylinder)') },
+    { type: 'fw_cone', message0: t('%1 Kegel  Höhe %2 Radius unten %3 oben %4 zentriert %5'), args0: [img('cone'), N('H'), N('R1'), N('R2'), CHECK()], style: 'shape3d_blocks', tooltip: t('Kegel oder Kegelstumpf (cylinder mit r1/r2)') },
+    { type: 'fw_torus', message0: t('%1 Ring  Radius %2 Dicke %3'), args0: [img('torus'), N('R'), N('T')], style: 'shape3d_blocks', tooltip: t('Ring/Donut (Torus)') },
+    { type: 'fw_text3d', message0: t('%1 3D-Text %2 Größe %3 Höhe %4'), args0: [img('text'), T('TEXT'), N('S'), N('H')], style: 'shape3d_blocks', tooltip: t('Text als Körper') },
     // Flächen
-    { type: 'fw_square', message0: '%1 Rechteck  B %2 T %3 zentriert %4', args0: [img('square'), N('X'), N('Y'), CHECK()], style: 'shape2d_blocks', tooltip: '2D-Rechteck (square)' },
-    { type: 'fw_circle', message0: '%1 Kreis  Radius %2', args0: [img('circle'), N('R')], style: 'shape2d_blocks', tooltip: '2D-Kreis (circle)' },
-    { type: 'fw_ngon', message0: '%1 Vieleck  Ecken %2 Radius %3', args0: [img('hexagon'), N('N'), N('R')], style: 'shape2d_blocks', tooltip: 'Regelmäßiges Vieleck' },
-    { type: 'fw_star', message0: '%1 Stern  Zacken %2 außen %3 innen %4', args0: [img('star'), N('N'), N('A'), N('I')], style: 'shape2d_blocks', tooltip: 'Stern mit äußeren und inneren Radius' },
-    { type: 'fw_text2d', message0: '%1 Text %2 Größe %3 Schrift %4', args0: [img('text'), T('TEXT'), N('S'), { type: 'field_dropdown', name: 'FONT', options: [['Sans fett', 'Liberation Sans:style=Bold'], ['Sans', 'Liberation Sans'], ['Serif', 'Liberation Serif'], ['Serif fett', 'Liberation Serif:style=Bold'], ['Mono', 'Liberation Mono'], ['Mono fett', 'Liberation Mono:style=Bold']] }], style: 'shape2d_blocks', tooltip: '2D-Text' },
+    { type: 'fw_square', message0: t('%1 Rechteck  B %2 T %3 zentriert %4'), args0: [img('square'), N('X'), N('Y'), CHECK()], style: 'shape2d_blocks', tooltip: t('2D-Rechteck (square)') },
+    { type: 'fw_circle', message0: t('%1 Kreis  Radius %2'), args0: [img('circle'), N('R')], style: 'shape2d_blocks', tooltip: t('2D-Kreis (circle)') },
+    { type: 'fw_ngon', message0: t('%1 Vieleck  Ecken %2 Radius %3'), args0: [img('hexagon'), N('N'), N('R')], style: 'shape2d_blocks', tooltip: t('Regelmäßiges Vieleck') },
+    { type: 'fw_star', message0: t('%1 Stern  Zacken %2 außen %3 innen %4'), args0: [img('star'), N('N'), N('A'), N('I')], style: 'shape2d_blocks', tooltip: t('Stern mit äußeren und inneren Radius') },
+    { type: 'fw_text2d', message0: t('%1 Text %2 Größe %3 Schrift %4'), args0: [img('text'), T('TEXT'), N('S'), { type: 'field_dropdown', name: 'FONT', options: [[t('Sans fett'), 'Liberation Sans:style=Bold'], ['Sans', 'Liberation Sans'], ['Serif', 'Liberation Serif'], [t('Serif fett'), 'Liberation Serif:style=Bold'], ['Mono', 'Liberation Mono'], [t('Mono fett'), 'Liberation Mono:style=Bold']] }], style: 'shape2d_blocks', tooltip: t('2D-Text') },
     // Bewegen
-    { type: 'fw_translate', message0: '%1 verschiebe  x %2 y %3 z %4', args0: [img('move'), N('X'), N('Y'), N('Z')], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: 'Verschieben (translate)' },
-    { type: 'fw_rotate', message0: '%1 drehe  x %2 ° y %3 ° z %4 °', args0: [img('rotate'), N('X'), N('Y'), N('Z')], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: 'Drehen um die Achsen (rotate)' },
-    { type: 'fw_scale', message0: '%1 skaliere  x %2 y %3 z %4', args0: [img('scale'), N('X'), N('Y'), N('Z')], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: 'Strecken oder stauchen (scale)' },
-    { type: 'fw_mirror', message0: '%1 spiegle  %2', args0: [img('mirror'), { type: 'field_dropdown', name: 'AXIS', options: [['links ↔ rechts (X)', '[1, 0, 0]'], ['vorne ↔ hinten (Y)', '[0, 1, 0]'], ['oben ↔ unten (Z)', '[0, 0, 1]']] }], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: 'Spiegeln (mirror)' },
-    { type: 'fw_color', message0: '%1 färbe  %2 Deckkraft %3 %', args0: [img('color'), { type: 'field_dropdown', name: 'COLOR', options: COLORS.map(([n, hex]) => [{ src: swatch(hex), width: 18, height: 18, alt: n }, hex]) }, N('ALPHA')], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: 'Einfärben (color)' },
+    { type: 'fw_translate', message0: t('%1 verschiebe  x %2 y %3 z %4'), args0: [img('move'), N('X'), N('Y'), N('Z')], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: t('Verschieben (translate)') },
+    { type: 'fw_rotate', message0: t('%1 drehe  x %2 ° y %3 ° z %4 °'), args0: [img('rotate'), N('X'), N('Y'), N('Z')], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: t('Drehen um die Achsen (rotate)') },
+    { type: 'fw_scale', message0: t('%1 skaliere  x %2 y %3 z %4'), args0: [img('scale'), N('X'), N('Y'), N('Z')], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: t('Strecken oder stauchen (scale)') },
+    { type: 'fw_mirror', message0: t('%1 spiegle  %2'), args0: [img('mirror'), { type: 'field_dropdown', name: 'AXIS', options: [[t('links ↔ rechts (X)'), '[1, 0, 0]'], [t('vorne ↔ hinten (Y)'), '[0, 1, 0]'], [t('oben ↔ unten (Z)'), '[0, 0, 1]']] }], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: t('Spiegeln (mirror)') },
+    { type: 'fw_color', message0: t('%1 färbe  %2 Deckkraft %3 %'), args0: [img('color'), { type: 'field_dropdown', name: 'COLOR', options: COLORS.map(([n, hex]) => [{ src: swatch(hex), width: 18, height: 18, alt: t(n) }, hex]) }, N('ALPHA')], message1: '%1', args1: [DO()], style: 'transform_blocks', tooltip: t('Einfärben (color)') },
     // Kombinieren
-    { type: 'fw_union', message0: '%1 vereinige', args0: [img('union')], message1: '%1', args1: [DO()], style: 'combine_blocks', tooltip: 'Alles zu einem Körper verbinden (union)' },
-    { type: 'fw_difference', message0: '%1 nimm', args0: [img('difference')], message1: '%1', args1: [DO('BASE')], message2: 'und ziehe ab', message3: '%1', args3: [DO('SUB')], style: 'combine_blocks', tooltip: 'Vom ersten Teil alles Weitere abziehen (difference)' },
-    { type: 'fw_intersection', message0: '%1 Schnittmenge', args0: [img('intersection')], message1: '%1', args1: [DO()], style: 'combine_blocks', tooltip: 'Nur was alle gemeinsam haben (intersection)' },
-    { type: 'fw_hull', message0: '%1 Hülle um', args0: [img('hull')], message1: '%1', args1: [DO()], style: 'combine_blocks', tooltip: 'Konvexe Hülle – wie Folie drumherum (hull)' },
-    { type: 'fw_minkowski', message0: '%1 Minkowski-Summe', args0: [img('minkowski')], message1: '%1', args1: [DO()], style: 'combine_blocks', tooltip: 'Form um eine zweite „herumfahren“, z. B. zum Abrunden (minkowski)' },
+    { type: 'fw_union', message0: t('%1 vereinige'), args0: [img('union')], message1: '%1', args1: [DO()], style: 'combine_blocks', tooltip: t('Alles zu einem Körper verbinden (union)') },
+    { type: 'fw_difference', message0: t('%1 nimm'), args0: [img('difference')], message1: '%1', args1: [DO('BASE')], message2: t('und ziehe ab'), message3: '%1', args3: [DO('SUB')], style: 'combine_blocks', tooltip: t('Vom ersten Teil alles Weitere abziehen (difference)') },
+    { type: 'fw_intersection', message0: t('%1 Schnittmenge'), args0: [img('intersection')], message1: '%1', args1: [DO()], style: 'combine_blocks', tooltip: t('Nur was alle gemeinsam haben (intersection)') },
+    { type: 'fw_hull', message0: t('%1 Hülle um'), args0: [img('hull')], message1: '%1', args1: [DO()], style: 'combine_blocks', tooltip: t('Konvexe Hülle – wie Folie drumherum (hull)') },
+    { type: 'fw_minkowski', message0: t('%1 Minkowski-Summe'), args0: [img('minkowski')], message1: '%1', args1: [DO()], style: 'combine_blocks', tooltip: t('Form um eine zweite „herumfahren“, z. B. zum Abrunden (minkowski)') },
     // Extrudieren
-    { type: 'fw_linear_extrude', message0: '%1 ziehe hoch  Höhe %2 Drehung %3 ° Skalierung %4', args0: [img('extrude'), N('H'), N('TWIST'), N('SCALE')], message1: '%1', args1: [DO()], style: 'extrude_blocks', tooltip: '2D-Formen in die Höhe ziehen (linear_extrude)' },
-    { type: 'fw_rotate_extrude', message0: '%1 drehe um die Z-Achse  Winkel %2 °', args0: [img('revolve'), N('A')], message1: '%1', args1: [DO()], style: 'extrude_blocks', tooltip: '2D-Profil zu einem Drehkörper (rotate_extrude) – Profil rechts der Y-Achse platzieren' },
-    { type: 'fw_offset', message0: '%1 Kontur  versetzen um %2', args0: [img('offset'), N('D')], message1: '%1', args1: [DO()], style: 'extrude_blocks', tooltip: '2D-Kontur wachsen (+) oder schrumpfen (−) lassen, gerundet (offset)' },
+    { type: 'fw_linear_extrude', message0: t('%1 ziehe hoch  Höhe %2 Drehung %3 ° Skalierung %4'), args0: [img('extrude'), N('H'), N('TWIST'), N('SCALE')], message1: '%1', args1: [DO()], style: 'extrude_blocks', tooltip: t('2D-Formen in die Höhe ziehen (linear_extrude)') },
+    { type: 'fw_rotate_extrude', message0: t('%1 drehe um die Z-Achse  Winkel %2 °'), args0: [img('revolve'), N('A')], message1: '%1', args1: [DO()], style: 'extrude_blocks', tooltip: t('2D-Profil zu einem Drehkörper (rotate_extrude) – Profil rechts der Y-Achse platzieren') },
+    { type: 'fw_offset', message0: t('%1 Kontur  versetzen um %2'), args0: [img('offset'), N('D')], message1: '%1', args1: [DO()], style: 'extrude_blocks', tooltip: t('2D-Kontur wachsen (+) oder schrumpfen (−) lassen, gerundet (offset)') },
     // Wiederholen
-    { type: 'fw_repeat_circle', message0: '%1 wiederhole %2 mal im Kreis', args0: [img('ring'), N('N')], message1: '%1', args1: [DO()], style: 'loop_blocks', tooltip: 'Kopien gleichmäßig um die Z-Achse verteilen' },
-    { type: 'fw_repeat_line', message0: '%1 wiederhole %2 mal  Abstand x %3 y %4 z %5', args0: [img('line'), N('N'), N('X'), N('Y'), N('Z')], message1: '%1', args1: [DO()], style: 'loop_blocks', tooltip: 'Kopien in einer Reihe' },
-    { type: 'fw_repeat_grid', message0: '%1 Raster  %2 × %3 Abstand %4', args0: [img('grid'), N('NX'), N('NY'), N('D')], message1: '%1', args1: [DO()], style: 'loop_blocks', tooltip: 'Kopien in einem Raster' },
+    { type: 'fw_repeat_circle', message0: t('%1 wiederhole %2 mal im Kreis'), args0: [img('ring'), N('N')], message1: '%1', args1: [DO()], style: 'loop_blocks', tooltip: t('Kopien gleichmäßig um die Z-Achse verteilen') },
+    { type: 'fw_repeat_line', message0: t('%1 wiederhole %2 mal  Abstand x %3 y %4 z %5'), args0: [img('line'), N('N'), N('X'), N('Y'), N('Z')], message1: '%1', args1: [DO()], style: 'loop_blocks', tooltip: t('Kopien in einer Reihe') },
+    { type: 'fw_repeat_grid', message0: t('%1 Raster  %2 × %3 Abstand %4'), args0: [img('grid'), N('NX'), N('NY'), N('D')], message1: '%1', args1: [DO()], style: 'loop_blocks', tooltip: t('Kopien in einem Raster') },
     // Variablen & Extras
-    { type: 'fw_param', message0: '%1 Regler %2 = %3 von %4 bis %5', args0: [img('slider'), { type: 'field_variable', name: 'VAR', variable: 'groesse' }, { type: 'field_number', name: 'VALUE', value: 20 }, { type: 'field_number', name: 'MIN', value: 1 }, { type: 'field_number', name: 'MAX', value: 100 }], style: 'variable_blocks', tooltip: 'Variable mit Regler im Customizer (rechts). Lege Regler frei auf die Arbeitsfläche.', ...STMT },
-    { type: 'fw_resolution', message0: '%1 Rundungen glätten  %2 Segmente', args0: [img('smooth'), N('N')], style: 'extra_blocks', tooltip: 'Wie fein Kreise und Kugeln aufgelöst werden ($fn)' },
-    { type: 'fw_echo', message0: '%1 gib aus %2', args0: [img('echo'), ANY('VALUE')], style: 'extra_blocks', tooltip: 'Wert in der Konsole anzeigen (echo)' },
-    { type: 'fw_code', message0: '%1 Code %2', args0: [img('code'), { type: 'field_input', name: 'CODE', text: 'cube(5);', spellcheck: false }], style: 'extra_blocks', tooltip: 'Beliebiger OpenSCAD-Code' },
+    { type: 'fw_param', message0: t('%1 Regler %2 = %3 von %4 bis %5'), args0: [img('slider'), { type: 'field_variable', name: 'VAR', variable: t('groesse') }, { type: 'field_number', name: 'VALUE', value: 20 }, { type: 'field_number', name: 'MIN', value: 1 }, { type: 'field_number', name: 'MAX', value: 100 }], style: 'variable_blocks', tooltip: t('Variable mit Regler im Customizer (rechts). Lege Regler frei auf die Arbeitsfläche.'), ...STMT },
+    { type: 'fw_resolution', message0: t('%1 Rundungen glätten  %2 Segmente'), args0: [img('smooth'), N('N')], style: 'extra_blocks', tooltip: t('Wie fein Kreise und Kugeln aufgelöst werden ($fn)') },
+    { type: 'fw_echo', message0: t('%1 gib aus %2'), args0: [img('echo'), ANY('VALUE')], style: 'extra_blocks', tooltip: t('Wert in der Konsole anzeigen (echo)') },
+    { type: 'fw_code', message0: t('%1 Code %2'), args0: [img('code'), { type: 'field_input', name: 'CODE', text: 'cube(5);', spellcheck: false }], style: 'extra_blocks', tooltip: t('Beliebiger OpenSCAD-Code') },
   ];
   for (const d of defs) Object.assign(d, { ...STMT, ...d });
   B.common.defineBlocksWithJsonArray(defs);
@@ -139,6 +140,20 @@ function defineBlocks(B) {
 
 function tweakMessages(B) {
   const M = B.Msg;
+  if (lang === 'en') {
+    Object.assign(M, {
+      PROCEDURES_DEFNORETURN_TITLE: 'part',
+      PROCEDURES_DEFNORETURN_PROCEDURE: 'my_part',
+      PROCEDURES_BEFORE_PARAMS: 'with:',
+      PROCEDURES_CALL_BEFORE_PARAMS: 'with:',
+      PROCEDURES_DEFNORETURN_TOOLTIP: 'Your own building block (OpenSCAD module) that you can reuse',
+      PROCEDURES_CALLNORETURN_TOOLTIP: 'Insert your own building block',
+      PROCEDURES_DEFNORETURN_COMMENT: 'Describe this part …',
+      NEW_VARIABLE: 'Create variable …',
+      NEW_VARIABLE_TITLE: 'New variable name:',
+    });
+    return;
+  }
   Object.assign(M, {
     PROCEDURES_DEFNORETURN_TITLE: 'Baustein',
     PROCEDURES_DEFNORETURN_PROCEDURE: 'mein_teil',
@@ -230,48 +245,48 @@ const blk = (type, inputs = {}, fields) => ({ kind: 'block', type, inputs, ...(f
 export const TOOLBOX = {
   kind: 'categoryToolbox',
   contents: [
-    { kind: 'category', name: 'Körper', categorystyle: 'shape3d_category', contents: [
+    { kind: 'category', name: t('Körper'), categorystyle: 'shape3d_category', contents: [
       blk('fw_cube', { X: num(20), Y: num(20), Z: num(20) }),
       blk('fw_sphere', { R: num(10) }),
       blk('fw_cylinder', { H: num(20), R: num(10) }),
       blk('fw_cone', { H: num(20), R1: num(10), R2: num(0) }),
       blk('fw_torus', { R: num(15), T: num(5) }),
-      blk('fw_text3d', { TEXT: str('Hallo'), S: num(10), H: num(3) }),
+      blk('fw_text3d', { TEXT: str(t('Hallo')), S: num(10), H: num(3) }),
     ] },
-    { kind: 'category', name: 'Flächen', categorystyle: 'shape2d_category', contents: [
-      { kind: 'label', text: '2D – mit „ziehe hoch“ zu Körpern machen' },
+    { kind: 'category', name: t('Flächen'), categorystyle: 'shape2d_category', contents: [
+      { kind: 'label', text: t('2D – mit „ziehe hoch“ zu Körpern machen') },
       blk('fw_square', { X: num(20), Y: num(10) }),
       blk('fw_circle', { R: num(10) }),
       blk('fw_ngon', { N: num(6), R: num(10) }),
       blk('fw_star', { N: num(5), A: num(20), I: num(9) }),
-      blk('fw_text2d', { TEXT: str('Hallo'), S: num(10) }),
+      blk('fw_text2d', { TEXT: str(t('Hallo')), S: num(10) }),
     ] },
-    { kind: 'category', name: 'Bewegen', categorystyle: 'transform_category', contents: [
+    { kind: 'category', name: t('Bewegen'), categorystyle: 'transform_category', contents: [
       blk('fw_translate', { X: num(10), Y: num(0), Z: num(0) }),
       blk('fw_rotate', { X: num(0), Y: num(0), Z: num(45) }),
       blk('fw_scale', { X: num(1), Y: num(1), Z: num(2) }),
       blk('fw_mirror'),
       blk('fw_color', { ALPHA: num(100) }, { COLOR: '#8b5cf6' }),
     ] },
-    { kind: 'category', name: 'Kombinieren', categorystyle: 'combine_category', contents: [
+    { kind: 'category', name: t('Kombinieren'), categorystyle: 'combine_category', contents: [
       blk('fw_difference'),
       blk('fw_union'),
       blk('fw_intersection'),
       blk('fw_hull'),
       blk('fw_minkowski'),
     ] },
-    { kind: 'category', name: 'Formen', categorystyle: 'extrude_category', contents: [
+    { kind: 'category', name: t('Formen'), categorystyle: 'extrude_category', contents: [
       blk('fw_linear_extrude', { H: num(10), TWIST: num(0), SCALE: num(1) }),
       blk('fw_rotate_extrude', { A: num(360) }),
       blk('fw_offset', { D: num(2) }),
     ] },
-    { kind: 'category', name: 'Wiederholen', categorystyle: 'loop_category', contents: [
+    { kind: 'category', name: t('Wiederholen'), categorystyle: 'loop_category', contents: [
       blk('fw_repeat_circle', { N: num(6) }),
       blk('fw_repeat_line', { N: num(4), X: num(25), Y: num(0), Z: num(0) }),
       blk('fw_repeat_grid', { NX: num(3), NY: num(3), D: num(25) }),
       blk('controls_for', { FROM: num(1), TO: num(5), BY: num(1) }),
     ] },
-    { kind: 'category', name: 'Logik', categorystyle: 'logic_category', contents: [
+    { kind: 'category', name: t('Logik'), categorystyle: 'logic_category', contents: [
       blk('controls_if'),
       { kind: 'block', type: 'controls_if', extraState: { hasElse: true } },
       blk('logic_compare'),
@@ -280,7 +295,7 @@ export const TOOLBOX = {
       blk('logic_boolean'),
       blk('logic_ternary'),
     ] },
-    { kind: 'category', name: 'Mathe', categorystyle: 'math_category', contents: [
+    { kind: 'category', name: t('Mathe'), categorystyle: 'math_category', contents: [
       blk('math_number'),
       blk('math_arithmetic', { A: num(1), B: num(1) }),
       blk('math_single', { NUM: num(9) }),
@@ -291,16 +306,16 @@ export const TOOLBOX = {
       blk('math_constrain', { VALUE: num(50), LOW: num(1), HIGH: num(100) }),
       blk('math_random_int', { FROM: num(1), TO: num(10) }),
     ] },
-    { kind: 'category', name: 'Text', categorystyle: 'text_category', contents: [
+    { kind: 'category', name: t('Text'), categorystyle: 'text_category', contents: [
       blk('text'),
       blk('text_join'),
     ] },
     { kind: 'sep' },
-    { kind: 'category', name: 'Variablen', categorystyle: 'variable_category', custom: 'FW_VARIABLES' },
-    { kind: 'category', name: 'Bausteine', categorystyle: 'procedure_category', custom: 'FW_MODULES' },
-    { kind: 'category', name: 'Extras', categorystyle: 'extra_category', contents: [
+    { kind: 'category', name: t('Variablen'), categorystyle: 'variable_category', custom: 'FW_VARIABLES' },
+    { kind: 'category', name: t('Bausteine'), categorystyle: 'procedure_category', custom: 'FW_MODULES' },
+    { kind: 'category', name: t('Extras'), categorystyle: 'extra_category', contents: [
       blk('fw_resolution', { N: num(64) }),
-      blk('fw_echo', { VALUE: str('Hallo') }),
+      blk('fw_echo', { VALUE: str(t('Hallo')) }),
       blk('fw_code'),
     ] },
   ],
@@ -314,8 +329,11 @@ const vget = (id) => ({ block: { type: 'variables_get', fields: { VAR: { id } } 
 const arith = (op, a, b) => ({ block: { type: 'math_arithmetic', fields: { OP: op }, inputs: { A: a, B: b } } });
 const withNum = (input, n) => ({ ...input, shadow: { type: 'math_number', fields: { NUM: n } } });
 
-export const STARTER = {
-  variables: [{ name: 'hoehe', id: 'v_hoehe' }, { name: 'radius', id: 'v_radius' }, { name: 'wand', id: 'v_wand' }],
+// Startprojekt (Becher) – Variablennamen in der jeweiligen Sprache
+export function starter() {
+  const n = lang === 'en' ? { h: 'height', r: 'radius', w: 'wall' } : { h: 'hoehe', r: 'radius', w: 'wand' };
+  return {
+  variables: [{ name: n.h, id: 'v_hoehe' }, { name: n.r, id: 'v_radius' }, { name: n.w, id: 'v_wand' }],
   blocks: {
     languageVersion: 0,
     blocks: [
@@ -353,6 +371,9 @@ export const STARTER = {
     ],
   },
 };
+}
+
+export const STARTER = starter();
 
 /* ------------------------------------------------------------ Editor */
 
@@ -408,20 +429,20 @@ export class BlockEditor {
 
   variablesFlyout(ws) {
     const out = [
-      { kind: 'button', text: 'Variable erstellen …', callbackkey: 'FW_NEW_VAR' },
+      { kind: 'button', text: t('Variable erstellen …'), callbackkey: 'FW_NEW_VAR' },
     ];
     const vars = ws.getVariableMap().getVariablesOfType('');
     if (vars.length) {
       const first = vars[0];
-      out.push({ kind: 'label', text: 'Regler erscheinen rechts im Customizer' });
+      out.push({ kind: 'label', text: t('Regler erscheinen rechts im Customizer') });
       out.push({ kind: 'block', type: 'fw_param', fields: { VAR: { id: first.getId() }, VALUE: 20, MIN: 1, MAX: 100 } });
       out.push({ kind: 'block', type: 'variables_set', fields: { VAR: { id: first.getId() } }, inputs: { VALUE: num(10) } });
       for (const v of vars.sort((a, b) => a.getName().localeCompare(b.getName()))) {
         out.push({ kind: 'block', type: 'variables_get', fields: { VAR: { id: v.getId() } } });
       }
     } else {
-      out.push({ kind: 'label', text: 'Noch keine Variablen' });
-      out.push({ kind: 'block', type: 'fw_param', fields: { VAR: { name: 'groesse' }, VALUE: 20, MIN: 1, MAX: 100 } });
+      out.push({ kind: 'label', text: t('Noch keine Variablen') });
+      out.push({ kind: 'block', type: 'fw_param', fields: { VAR: { name: t('groesse') }, VALUE: 20, MIN: 1, MAX: 100 } });
     }
     return out;
   }
@@ -429,8 +450,8 @@ export class BlockEditor {
   modulesFlyout(ws) {
     const B = this.B;
     const out = [
-      { kind: 'label', text: 'Eigene Bausteine (Module) bauen und wiederverwenden' },
-      { kind: 'block', type: 'procedures_defnoreturn', fields: { NAME: 'mein_teil' } },
+      { kind: 'label', text: t('Eigene Bausteine (Module) bauen und wiederverwenden') },
+      { kind: 'block', type: 'procedures_defnoreturn', fields: { NAME: t('mein_teil') } },
     ];
     const [noReturn] = B.Procedures.allProcedures(ws);
     for (const [name, args] of noReturn) {
@@ -448,7 +469,7 @@ export class BlockEditor {
     this.B.Events.disable();
     try {
       this.ws.clear();
-      this.B.serialization.workspaces.load(state ?? STARTER, this.ws);
+      this.B.serialization.workspaces.load(state ?? starter(), this.ws);
     } finally {
       this.B.Events.enable();
     }
