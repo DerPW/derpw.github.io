@@ -4,13 +4,13 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js?v=ee16eba';
-import { planChunks } from './textprep.js?v=ee16eba';
-import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=ee16eba';
-import * as store from './store.js?v=ee16eba';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=ee16eba';
+import { parseFile, parseText } from './book.js?v=5fc59da';
+import { planChunks } from './textprep.js?v=5fc59da';
+import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=5fc59da';
+import * as store from './store.js?v=5fc59da';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=5fc59da';
 
-const VERSION = '0.10.0'; // keep in step with src/lector/__init__.py
+const VERSION = '0.12.1'; // keep in step with src/lector/__init__.py
 // Characters per passage. Kokoro cuts off input beyond about 510 phoneme tokens, but memory is
 // the real limit: on WebGPU a 300-character passage briefly needs 3-4 GB, 180 characters stay
 // under 1 GB (measured on an M3), for about 15 % less speed.
@@ -108,7 +108,7 @@ const tts = (() => {
   const listeners = new Set();
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js?v=ee16eba', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=5fc59da', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress' || data.type === 'ready') listeners.forEach((fn) => fn(data));
       if (data.type === 'ready') waiting.get('load')?.resolve(data);
@@ -426,8 +426,35 @@ function updateJobView() {
   updateTab();
 }
 
+// The tab shows the progress as a ring in place of the logo, like Lector does. A PNG, because
+// Safari shows no SVG tab icons.
+const BASE_ICON = 'favicon.png';
+const ringCache = new Map();
+
+function setFavicon(href) {
+  const link = $('link[rel=icon]');
+  if (link && link.getAttribute('href') !== href) link.setAttribute('href', href);
+}
+
+function progressIcon(pct) {
+  if (!ringCache.has(pct)) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    g.lineWidth = 10;
+    g.strokeStyle = 'rgba(128,128,128,.35)';
+    g.beginPath(); g.arc(32, 32, 25, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#b4531a';
+    g.lineCap = 'round';
+    g.beginPath(); g.arc(32, 32, 25, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, pct / 100)); g.stroke();
+    ringCache.set(pct, c.toDataURL('image/png'));
+  }
+  return ringCache.get(pct);
+}
+
 function updateTab() {
   const j = state.job;
+  if (!j || j.step === 'done' || j.paused || j.error) setFavicon(BASE_ICON);
   if (!j) { document.title = 'Lector Lite'; return; }
   if (j.step === 'done') {
     document.title = document.hidden ? `✓ ${t('tab.done', { title: j.title })} – Lector Lite` : 'Lector Lite';
@@ -441,6 +468,7 @@ function updateTab() {
   const spent = jobElapsed(j);
   const pct = left != null && spent + left > 0 ? Math.round((spent / (spent + left)) * 100) : 0;
   document.title = `${pct} % · ${t(`step.${j.step}`)}${left != null ? ` · ${t('time.left', { d: duration(left) })}` : ''} – Lector Lite`;
+  setFavicon(progressIcon(pct));
 }
 
 setInterval(() => {
