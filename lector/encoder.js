@@ -4,8 +4,8 @@
 // raw audio never piles up in memory. The M4B is then a stream copy of the chapter files with
 // chapter marks, metadata and the cover; per-chapter MP3s are packed into a ZIP.
 
-import { FFmpeg } from './vendor/ffmpeg/index.js';
-import { FFFSType } from './vendor/ffmpeg/types.js';
+import { FFmpeg } from './vendor/ffmpeg/index.js?v=97a1a93';
+import { FFFSType } from './vendor/ffmpeg/types.js?v=97a1a93';
 import JSZip from 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
 
 const CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';

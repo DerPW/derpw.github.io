@@ -4,11 +4,11 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js';
-import { planChunks } from './textprep.js';
-import { RATE, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js';
-import * as store from './store.js';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js';
+import { parseFile, parseText } from './book.js?v=97a1a93';
+import { planChunks } from './textprep.js?v=97a1a93';
+import { RATE, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=97a1a93';
+import * as store from './store.js?v=97a1a93';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=97a1a93';
 
 const VERSION = '0.8.1'; // keep in step with src/lector/__init__.py
 const MAX_CHARS = 300; // Kokoro cuts off input beyond about 510 phoneme tokens
@@ -93,7 +93,7 @@ const tts = (() => {
   const listeners = new Set();
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=97a1a93', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress' || data.type === 'ready') listeners.forEach((fn) => fn(data));
       if (data.type === 'ready') waiting.get('load')?.resolve(data);
