@@ -67,9 +67,7 @@ export function setBooks(source, entries) {
     if (b.newCover?.url) URL.revokeObjectURL(b.newCover.url);
   }
   state.source = source;
-  state.books = entries.map((e) => ({
-    id: nextId++, ...e, status: 'pending', info: null, meta: null, edits: {}, newCover: null, thumb: null, error: null,
-  }));
+  state.books = entries.map(makeBook);
   state.byId = new Map(state.books.map((b) => [b.id, b]));
   state.selection.clear();
   state.anchor = state.focus = null;
@@ -77,6 +75,20 @@ export function setBooks(source, entries) {
   history.length = 0;
   future.length = 0;
   emit('books');
+}
+
+export function makeBook(entry) {
+  return { id: nextId++, ...entry, status: 'pending', info: null, meta: null, edits: {}, newCover: null, thumb: null, error: null };
+}
+
+/** Bücherliste nach dem Neu-Einlesen ersetzen; Auswahl und Verlauf bleiben für vorhandene Bücher erhalten. */
+export function replaceBooks(books) {
+  state.books = books;
+  state.byId = new Map(books.map((b) => [b.id, b]));
+  for (const id of [...state.selection]) if (!state.byId.has(id)) state.selection.delete(id);
+  if (!state.byId.has(state.anchor)) state.anchor = null;
+  if (!state.byId.has(state.focus)) state.focus = null;
+  emit('books-replaced');
 }
 
 export const getBook = (id) => state.byId.get(id);
@@ -92,9 +104,11 @@ export const isFieldDirty = (book, field) => (field === 'cover' ? Boolean(book.n
 
 /** Kurzform für Anzeige und Suche */
 export function display(book) {
-  const authors = value(book, 'authors');
+  // Nicht lesbare Bücher: das, was beim Identifizieren gefunden wurde
+  const id = !book.meta ? book.identified : null;
+  const authors = id ? id.authors : value(book, 'authors');
   return {
-    title: value(book, 'title') || book.name.replace(/\.epub$/i, ''),
+    title: (id ? id.title : value(book, 'title')) || book.name.replace(/\.epub$/i, ''),
     author: authors.join(', '),
     series: value(book, 'series'),
     seriesIndex: value(book, 'seriesIndex'),
@@ -218,11 +232,12 @@ export const SMART = [
   { kind: 'dirty', label: 'Ungesichert', icon: 'clock', test: isDirty },
 ];
 export const MISSING = [
-  { kind: 'no-cover', label: 'Ohne Cover', icon: 'photo', test: (b) => !b.info?.cover && !b.newCover },
-  { kind: 'no-author', label: 'Ohne Autor', icon: 'person', test: (b) => !value(b, 'authors').length },
-  { kind: 'no-description', label: 'Ohne Beschreibung', icon: 'textQuote', test: (b) => !value(b, 'description') },
-  { kind: 'no-isbn', label: 'Ohne ISBN', icon: 'tag', test: (b) => !value(b, 'isbn') },
-  { kind: 'errors', label: 'Fehler', icon: 'alert', test: (b) => b.status === 'error', hideEmpty: true },
+  { kind: 'no-cover', label: 'Ohne Cover', icon: 'photo', test: (b) => Boolean(b.meta) && !b.info?.cover && !b.newCover },
+  { kind: 'no-author', label: 'Ohne Autor', icon: 'person', test: (b) => Boolean(b.meta) && !value(b, 'authors').length },
+  { kind: 'no-description', label: 'Ohne Beschreibung', icon: 'textQuote', test: (b) => Boolean(b.meta) && !value(b, 'description') },
+  { kind: 'no-isbn', label: 'Ohne ISBN', icon: 'tag', test: (b) => Boolean(b.meta) && !value(b, 'isbn') },
+  { kind: 'repair', label: 'Beschädigt', icon: 'alert', test: (b) => Boolean(b.info?.repaired), hideEmpty: true },
+  { kind: 'errors', label: 'Nicht lesbar', icon: 'alert', test: (b) => b.status === 'error', hideEmpty: true },
 ];
 
 export function filterTest(filter) {

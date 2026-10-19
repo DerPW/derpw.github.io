@@ -25,13 +25,13 @@ function analyze(src) {
   if (!pkg) throw new Error('OPF ohne <package>-Element');
   const version = attr(pkg, 'version') || '2.0';
   const v3 = parseFloat(version) >= 3;
+  // Fehlt <metadata>, gelten alle Felder als leer; beim Schreiben wird es angelegt.
   const metadata = elements(pkg).find((el) => is(el, NS.opf, 'metadata')) ?? find(pkg, (el) => is(el, NS.opf, 'metadata'));
-  if (!metadata) throw new Error('OPF ohne <metadata>-Element');
   const manifest = elements(pkg).find((el) => is(el, NS.opf, 'manifest'));
   const spine = elements(pkg).find((el) => is(el, NS.opf, 'spine'));
   const guide = elements(pkg).find((el) => is(el, NS.opf, 'guide'));
 
-  const all = [...descendants(metadata)];
+  const all = metadata ? [...descendants(metadata)] : [];
   const metas = all.filter((el) => is(el, NS.opf, 'meta'));
   const refines = new Map();
   for (const m of metas) {
@@ -229,8 +229,18 @@ function prefixFor(ctx, uri) {
  * changes: { feld: wert } – nur die Felder, die sich geändert haben.
  * options.cover: { add: { href, mediaType } } | { id, setMediaType } | { id, declare: true }
  */
-export function writeOPF(src, changes, { modified = new Date(), cover = null, descriptionHTML = false } = {}) {
-  const ctx = analyze(src);
+export function writeOPF(src, changes, options = {}) {
+  const pre = analyze(src);
+  if (!pre.metadata) {
+    const p = pre.pkg.prefix ? `${pre.pkg.prefix}:` : '';
+    const block = `\n  <${p}metadata xmlns:dc="${NS.dc}" xmlns:opf="${NS.opf}">\n  </${p}metadata>`;
+    return writeOPF(src.slice(0, pre.pkg.openEnd) + block + src.slice(pre.pkg.openEnd), changes, options);
+  }
+  return writeAnalyzed(pre, changes, options);
+}
+
+function writeAnalyzed(ctx, changes, { modified = new Date(), cover = null, descriptionHTML = false } = {}) {
+  const { src } = ctx;
   const { v3, metadata } = ctx;
   const S = new Splicer(src);
   const removed = new Set();
@@ -250,7 +260,7 @@ export function writeOPF(src, changes, { modified = new Date(), cover = null, de
     const s = ws ? src.slice(ws.start, ws.end) : '';
     return s.includes('\n') ? s.slice(s.lastIndexOf('\n')) : s;
   };
-  const indent = indentOf(childEls.at(-1) ?? null) || indentOf(childEls[0] ?? null);
+  const indent = indentOf(childEls.at(-1) ?? null) || indentOf(childEls[0] ?? null) || (childEls.length ? '' : '\n    ');
 
   let dcPrefix = prefixFor(ctx, NS.dc);
   if (!dcPrefix) { dcPrefix = 'dc'; needNS.set('xmlns:dc', NS.dc); }

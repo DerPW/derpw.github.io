@@ -163,6 +163,41 @@ export async function writeFile(entry, bytes) {
   return entry.handle.getFile();
 }
 
+/* ---------------------------------------------------------- Umbenennen */
+
+/** 'move' wenn die Datei im Ordner umbenannt werden kann, 'download' für Kopien, sonst null. */
+export function renameMode(entry, source) {
+  if (source?.mode === 'copy') return 'download';
+  if (entry.handle && (entry.parent || typeof entry.handle.move === 'function')) return 'move';
+  return null;
+}
+
+async function exists(dir, name) {
+  try { await dir.getFileHandle(name); return true; } catch { return false; }
+}
+
+/** Benennt eine Datei im selben Ordner um und gibt den neuen Handle zurück. */
+export async function renameEntry(entry, newName) {
+  if (newName === entry.name) return entry.handle;
+  if (!(await ensurePermission(entry.handle))) throw new Error('Kein Schreibzugriff erteilt');
+  if (entry.parent && (await exists(entry.parent, newName))) throw new Error(`„${newName}“ gibt es in diesem Ordner schon`);
+  if (typeof entry.handle.move === 'function') {
+    try {
+      await entry.handle.move(newName);
+      return entry.handle;
+    } catch (err) {
+      if (!entry.parent) throw err;
+    }
+  }
+  // Rückfallebene: kopieren und Original löschen
+  const target = await entry.parent.getFileHandle(newName, { create: true });
+  const writable = await target.createWritable();
+  await writable.write(await entry.handle.getFile());
+  await writable.close();
+  await entry.parent.removeEntry(entry.name);
+  return target;
+}
+
 /* ---------------------------------------------------- Zuletzt geöffnet */
 
 function openDB() {

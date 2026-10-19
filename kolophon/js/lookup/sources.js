@@ -27,12 +27,29 @@ export class SourceError extends Error {
   }
 }
 
-async function getJSON(url, label, { signal } = {}) {
-  let res;
-  try { res = await fetch(url, { signal, referrerPolicy: 'no-referrer' }); } catch (err) {
-    if (err.name === 'AbortError') throw err;
+/** Abbruch durch den Nutzer oder nach `ms` – damit eine hängende Anfrage nie die Warteschlange blockiert. */
+function withTimeout(signal, ms) {
+  if (typeof AbortSignal.any === 'function' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.any([signal, AbortSignal.timeout(ms)].filter(Boolean));
+  }
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(new DOMException('Zeitüberschreitung', 'TimeoutError')), ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); c.abort(signal.reason); }, { once: true });
+  return c.signal;
+}
+
+async function request(url, label, signal, ms = 15000) {
+  try {
+    return await fetch(url, { signal: withTimeout(signal, ms), referrerPolicy: 'no-referrer' });
+  } catch (err) {
+    if (signal?.aborted) throw new DOMException('Abgebrochen', 'AbortError');
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') throw new SourceError(`${label} antwortet nicht`);
     throw new SourceError(`${label} nicht erreichbar`);
   }
+}
+
+async function getJSON(url, label, { signal } = {}) {
+  const res = await request(url, label, signal);
   if (res.status === 429 || res.status === 403) throw new SourceError(`${label}: zu viele Anfragen – bitte kurz warten`, { rateLimited: true });
   if (!res.ok) throw new SourceError(`${label}: Fehler ${res.status}`);
   return res.json();
@@ -246,17 +263,13 @@ const cql = (s) => `"${String(s).replace(/["\\]/g, ' ').trim()}"`;
 async function dnb({ isbn, title, author, query, language }, { signal } = {}) {
   let q;
   if (isbn) q = `num=${isbn}`;
-  else if (query) q = `woe=${cql(query)}`;
+  else if (query) q = `woe all ${cql(query)}`; // alle Wörter, nicht als feste Wortfolge
   else if (title) q = `tit=${cql(title)}${author ? ` and per=${cql(author.split(/[,&]/)[0])}` : ''}`;
   else return [];
   const spr = !isbn && toMARC(language);
   if (spr) q += ` and spr=${spr}`;
   const p = new URLSearchParams({ version: '1.1', operation: 'searchRetrieve', query: q, recordSchema: 'MARC21-xml', maximumRecords: '12' });
-  let res;
-  try { res = await throttled('dnb', 300, () => fetch(`https://services.dnb.de/sru/dnb?${p}`, { signal, referrerPolicy: 'no-referrer' })); } catch (err) {
-    if (err.name === 'AbortError') throw err;
-    throw new SourceError('DNB nicht erreichbar');
-  }
+  const res = await throttled('dnb', 300, () => request(`https://services.dnb.de/sru/dnb?${p}`, 'DNB', signal));
   if (!res.ok) throw new SourceError(`DNB: Fehler ${res.status}`);
   // „Deutsche Nationalbibliothek“ als Verlag: Archiv- und Digitalisierungssätze (meist Hörfassungen), keine Buchausgabe
   const list = marcRecords(await res.text()).map((r) => fromMarc(r, isbn)).filter((r) => r.title && r.text && !/^deutsche nationalbibliothek$/i.test(r.publisher));
@@ -313,7 +326,7 @@ export const SOURCE_ORDER = ['apple', 'dnb', 'openlibrary', 'google'];
 
 /** Lädt ein Cover als Blob (nur bei Quellen mit CORS). */
 export async function fetchCover(url, signal) {
-  const res = await fetch(url, { signal, referrerPolicy: 'no-referrer' });
+  const res = await request(url, 'Cover-Server', signal, 30000);
   if (!res.ok) throw new Error(`Cover nicht ladbar (${res.status})`);
   const blob = await res.blob();
   if (!blob.type.startsWith('image/') || blob.size < 1200) throw new Error('Kein Cover vorhanden');

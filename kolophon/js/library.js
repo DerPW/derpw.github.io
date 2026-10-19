@@ -13,7 +13,9 @@ const scroller = document.getElementById('scroller');
 const nav = document.getElementById('sidebar-nav');
 
 let order = [];
-const nodes = new Map();
+const nodes = new Map();      // sichtbare Knoten
+let cache = new Map();        // alle je gebauten Knoten (bleiben beim Filtern erhalten)
+let cacheView = null;
 
 /* --------------------------------------------------------- Vorschaubilder */
 
@@ -63,17 +65,16 @@ async function loadThumb(book) {
   }
 }
 
-/** Liefert die Cover-URL für die Anzeige (neues Cover vor Vorschaubild). */
+/** Cover-URL für Raster und Listen: kleines Vorschaubild, notfalls das neue Cover oder der Treffer beim Identifizieren. */
 export function coverURL(book) {
-  return book.newCover?.url ?? book.thumb?.url ?? null;
+  return book.newCover?.thumbUrl ?? book.newCover?.url ?? book.thumb?.url ?? (!book.meta ? book.identified?.cover : null) ?? null;
 }
 
 export function coverNode(book, cls = 'cover') {
   const url = coverURL(book);
   if (book.status === 'pending') return h('div.skeleton');
   if (url) {
-    const img = h(`img.${cls}`, { src: url, alt: '', draggable: false, decoding: 'async' });
-    return img;
+    return h(`img.${cls}`, { src: url, alt: '', draggable: false, decoding: 'async', referrerPolicy: 'no-referrer' });
   }
   const d = display(book);
   return h('div.placeholder', { style: placeholderStyle(d.title, d.author), class: cls === 'cover' ? 'cover' : '' },
@@ -93,12 +94,11 @@ function cardNode(book) {
   },
   h('div.cover-box', {},
     coverNode(book),
-    book.status === 'error' ? h('span.card-badge', {}, 'Fehler') : null,
+    book.status === 'error' ? h('span.card-badge', { title: book.error }, 'Nicht lesbar') : book.info?.repaired ? h('span.card-badge', { title: 'Beschädigte Datei – wird beim Sichern repariert' }, 'Beschädigt') : null,
     d.series && d.seriesIndex ? h('span.card-badge.series', { title: d.series }, `#${d.seriesIndex}`) : null),
   h('div.card-text', {},
     h('div.card-title-wrap', {}, h('span.card-title', {}, isDirty(book) ? h('span.card-dot', { title: 'Ungesicherte Änderungen' }) : null, d.title)),
     h('div.card-author', {}, book.status === 'pending' ? '…' : d.author || ' ')));
-  if (book.info?.cover && !book.thumb) io.observe(el);
   return el;
 }
 
@@ -138,11 +138,13 @@ function rowNode(book) {
   h('span.r-dim', {}, book.meta ? value(book, 'publisher') : ''),
   h('span.r-dim', {}, book.meta ? value(book, 'language').map(languageName).join(', ') : ''),
   h('span.r-dim', { title: book.path }, book.path));
-  if (book.info?.cover && !book.thumb) io.observe(el);
   return el;
 }
 
 /* ---------------------------------------------------------------- Rendern */
+
+const build = (book) => (settings.view === 'grid' ? cardNode(book) : rowNode(book));
+const wantsThumb = (book) => book.info?.cover && !book.thumb && !book.thumbLoading;
 
 export function render() {
   const list = state.loading ? state.books.filter((b) => filterTest(state.filter)(b) || b.status === 'pending') : visibleBooks();
@@ -150,6 +152,7 @@ export function render() {
   nodes.clear();
   io.disconnect();
   const mode = settings.view;
+  if (cacheView !== mode) { cache = new Map(); cacheView = mode; }
   lib.className = `library ${mode}`;
   document.getElementById('content').classList.toggle('list-mode', mode === 'list');
   lib.style.setProperty('--card-w', `${settings.gridSize}px`);
@@ -158,11 +161,15 @@ export function render() {
   const frag = document.createDocumentFragment();
   if (mode === 'list' && list.length) frag.append(listHead());
   for (const b of list) {
-    const n = mode === 'grid' ? cardNode(b) : rowNode(b);
+    // Bereits gebaute Knoten wiederverwenden: Suchen und Filtern bleiben auch bei großen Bibliotheken flüssig
+    let n = cache.get(b.id);
+    if (!n) { n = build(b); cache.set(b.id, n); }
     nodes.set(b.id, n);
+    if (wantsThumb(b)) io.observe(n);
     frag.append(n);
   }
   lib.replaceChildren(frag);
+  updateSelection();
   renderEmpty(list.length);
   renderSidebar();
   emit('rendered');
@@ -181,12 +188,15 @@ function renderEmpty(count) {
 }
 
 export function updateBook(id) {
-  const old = nodes.get(id);
   const book = state.byId.get(id);
+  cache.delete(id);
+  const old = nodes.get(id);
   if (!old || !book) return;
-  const n = settings.view === 'grid' ? cardNode(book) : rowNode(book);
+  const n = build(book);
+  cache.set(id, n);
   old.replaceWith(n);
   nodes.set(id, n);
+  if (wantsThumb(book)) io.observe(n);
 }
 
 export function updateSelection() {
@@ -363,8 +373,20 @@ export function sortMenuItems(rerender) {
   ];
 }
 
-on('edits', ({ ids }) => {
-  for (const id of ids) updateBook(id);
-  renderSidebar();
-});
+// Änderungen gesammelt einmal pro Bild zeichnen (Tippen bei vielen ausgewählten Büchern)
+const pending = new Set();
+let frame = 0;
+export function scheduleUpdate(ids) {
+  for (const id of ids) pending.add(id);
+  if (frame) return;
+  frame = requestAnimationFrame(() => {
+    frame = 0;
+    for (const id of pending) updateBook(id);
+    pending.clear();
+    renderSidebar();
+  });
+}
+on('edits', ({ ids }) => scheduleUpdate(ids));
+on('books', () => { cache = new Map(); pending.clear(); });
+on('books-replaced', () => { cache = new Map(); });
 

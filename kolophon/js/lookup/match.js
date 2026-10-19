@@ -38,6 +38,31 @@ function dice(a, b) {
 
 const words = (s) => s.split(' ').filter((w) => w && !ARTICLES.has(w));
 
+/** Suchbegriff aus einem Dateinamen: Endung, Unterstriche, Tags in Klammern und Jahreszahlen weg. */
+export function queryFromFilename(name) {
+  return String(name ?? '')
+    .replace(/\.(kepub\.)?epub$/i, '')
+    .replace(/[_+]+/g, ' ')
+    .replace(/\[[^\]]*\]|\{[^}]*\}/g, ' ')
+    .replace(/\((?:z-?lib|libgen|retail|e-?book|epub|german|deutsch|english|v\d)[^)]*\)/gi, ' ')
+    .replace(/\b(19|20)\d\d\b/g, ' ')
+    .replace(/\s+-\s+|\s+–\s+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 0 … 1 – wie gut passt ein Treffer zu frei eingegebenen Suchbegriffen? */
+export function queryScore(query, r) {
+  const q = words(norm(query));
+  if (!q.length) return 0;
+  const titleWords = words(norm(`${r.title ?? ''} ${r.subtitle ?? ''}`));
+  const hay = new Set([...titleWords, ...words(norm((r.authors ?? []).join(' ')))]);
+  const found = q.filter((w) => hay.has(w)).length / q.length;
+  const qs = new Set(q);
+  const titleFound = titleWords.length ? titleWords.filter((w) => qs.has(w)).length / titleWords.length : 0;
+  return Math.min(0.99, found * 0.65 + titleFound * 0.35 + (r.format === 'ebook' ? 0.01 : 0));
+}
+
 export function titleScore(a, b) {
   const x = mainTitle(a);
   const y = mainTitle(b);

@@ -241,7 +241,8 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .tb-subtitle { color: var(--label-2); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .tb-spacer { flex: 1; }
 /* Ohne Bücher braucht es weder Suche noch Ansicht oder Sichern */
-.no-books :is(#view-switch, #btn-sort, #search, #btn-lookup, #btn-save) { display: none; }
+.no-books :is(#view-switch, #btn-sort, #search, #btn-lookup, #btn-save, #btn-refresh) { display: none; }
+#btn-refresh.spin .icon { animation: spin .8s linear infinite; }
 
 .glass-btn, .glass-capsule, .glass-search {
   height: 34px; border-radius: 999px;
@@ -504,6 +505,13 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .chip { height: 19px; padding: 0 7px; border-radius: 6px; background: var(--fill); color: var(--label-2); font-size: 11px; font-weight: 500; line-height: 19px; white-space: nowrap; }
 .chip.warn { background: color-mix(in srgb, var(--orange) 18%, transparent); color: color-mix(in srgb, var(--orange) 80%, var(--label)); }
 .insp-lookup { width: 100%; margin-top: 14px; height: 34px; }
+.insp-notice { display: flex; gap: 9px; margin-top: 12px; padding: 10px 12px; border-radius: 10px; text-align: left; font-size: 12px; line-height: 1.45; background: color-mix(in srgb, var(--orange) 13%, transparent); color: var(--label); }
+.insp-notice > span .icon { color: var(--orange); margin-top: 1px; }
+.insp-notice .btn { margin-top: 8px; }
+.insp-notice .hint { color: var(--label-2); margin-top: 4px; }
+.insp-notice.err { background: color-mix(in srgb, var(--red) 11%, transparent); }
+.insp-notice.err > span .icon { color: var(--red); }
+.insp-empty .btn { margin-top: 6px; }
 
 .group-title { margin: 22px 4px 7px; font-size: 11.5px; font-weight: 600; color: var(--label-2); display: flex; align-items: center; gap: 4px; }
 button.group-title { border: 0; background: none; padding: 0; width: calc(100% - 8px); }
@@ -668,6 +676,9 @@ textarea.input { resize: none; line-height: 1.42; min-height: 64px; display: blo
 
 /* ---------------------------------------------------- Online-Suche (Sheet) */
 
+/* Feste Höhe, damit das Sheet auch ohne Treffer nicht zusammenfällt */
+.sheet.lookup { height: min(720px, calc(100vh - 24px)); }
+.sheet.auto { height: min(700px, calc(100vh - 24px)); }
 .lookup .sheet-body { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .lk-bar { display: flex; gap: 8px; align-items: center; padding: 6px 22px 12px; flex-wrap: wrap; }
 .lk-query { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border-radius: 9px; background: var(--fill); color: var(--label-2); }
@@ -729,6 +740,8 @@ textarea.input { resize: none; line-height: 1.42; min-height: 64px; display: blo
 .cmp .clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
 .cmp .src { margin-left: 5px; vertical-align: 1px; }
 .cmp .empty-val { color: var(--label-3); }
+.lk-note { display: flex; gap: 8px; margin: 0 0 14px; padding: 9px 12px; border-radius: 10px; background: var(--fill); color: var(--label-2); font-size: 12px; line-height: 1.45; }
+.lk-note .icon { color: var(--accent); flex: none; margin-top: 1px; }
 .lk-combine { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--label-2); font-size: 12px; }
 
 /* Automatisch */
@@ -756,6 +769,8 @@ textarea.input { resize: none; line-height: 1.42; min-height: 64px; display: blo
 /* ------------------------------------------------------- Toasts, Ablegen */
 
 .toasts { position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+/* Bei offenem Sheet oben anzeigen, damit nichts die Knöpfe verdeckt */
+body:has(.sheet-backdrop) .toasts { top: 16px; bottom: auto; }
 .toast {
   pointer-events: auto; display: flex; align-items: center; gap: 9px; max-width: min(560px, calc(100vw - 32px));
   padding: 9px 14px; border-radius: 999px;

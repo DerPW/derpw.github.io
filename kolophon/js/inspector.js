@@ -5,6 +5,8 @@ import { coverNode, coverURL, coverBlob } from './library.js';
 import { languageName, parseLanguage, COMMON_LANGUAGES } from './langs.js';
 import { isValidISBN, normalizeISBN, sortName, sameValue, LIST_FIELDS } from './epub/text.js';
 import { placeholderStyle } from './covers.js';
+import { renameMode } from './fs.js';
+import { fileNameFor } from './lookup/sheet.js';
 
 const root = document.getElementById('inspector');
 
@@ -34,17 +36,26 @@ const GROUPS = [
 
 const collapsedGroups = new Set(JSON.parse(localStorage.getItem('kolophon.inspector.collapsed') || '["more"]'));
 
+// Vorschläge einmal je Darstellung des Inspektors berechnen, nicht bei jedem Tastendruck
+const collected = new Map();
 function collect(field) {
+  if (collected.has(field)) return collected.get(field);
   const out = new Map();
   for (const b of state.books) {
     if (!b.meta) continue;
     const v = value(b, field);
     for (const x of Array.isArray(v) ? v : [v]) if (x) out.set(x, (out.get(x) ?? 0) + 1);
   }
-  return [...out.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  const list = [...out.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  collected.set(field, list);
+  return list;
 }
 
 const selectedBooks = () => [...state.selection].map((id) => state.byId.get(id)).filter((b) => b?.meta);
+
+// Bücher, für die die gerade gezeichneten Felder gelten. Jedes Feld merkt sich diese Liste:
+// Ein Eintrag, der erst beim Verlassen des Felds übernommen wird, landet so nie beim nächsten Buch.
+let renderIds = [];
 
 function common(books, field) {
   const first = value(books[0], field);
@@ -56,8 +67,8 @@ function common(books, field) {
 
 let ownEdit = false;
 
-function change(field, v, { typing = false } = {}) {
-  const books = selectedBooks();
+function change(field, v, { typing = false, ids = renderIds } = {}) {
+  const books = ids.map((id) => state.byId.get(id)).filter((b) => b?.meta);
   const patch = [];
   for (const b of books) {
     patch.push({ id: b.id, field, value: v });
@@ -151,6 +162,7 @@ function attachSuggest(input, getItems, { label = (x) => x, onPick, exclude = ()
 
 function textField(field, { value: v, mixed }) {
   const d = DEF[field];
+  const ids = renderIds;
   const tag = d.type === 'textarea' ? 'textarea' : 'input';
   const input = h(`${tag}.input`, {
     value: v ?? '', placeholder: mixed ? 'Verschiedene Werte' : d.placeholder ?? '', class: mixed ? 'mixed' : '',
@@ -163,14 +175,14 @@ function textField(field, { value: v, mixed }) {
   }
   input.addEventListener('input', () => {
     if (tag === 'textarea') autosize(input);
-    change(field, input.value, { typing: true });
+    change(field, input.value, { typing: true, ids });
     if (field === 'isbn') updateISBNState(input);
   });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && tag === 'input') { e.preventDefault(); focusNext(input); }
     if (e.key === 'Escape') { e.preventDefault(); input.blur(); document.getElementById('scroller').focus(); }
   });
-  if (d.suggest) attachSuggest(input, d.suggest, { onPick: (x) => { input.value = x; change(field, x); } });
+  if (d.suggest) attachSuggest(input, d.suggest, { onPick: (x) => { input.value = x; change(field, x, { ids }); } });
   if (field === 'isbn') {
     const wrap = h('div.input-wrap', {}, input, h('span.state'));
     updateISBNState(input, wrap);
@@ -192,6 +204,7 @@ function updateISBNState(input, wrap = input.parentElement) {
 
 function tokenField(field, { value: values, mixed }) {
   const d = DEF[field];
+  const ids = renderIds;
   let list = [...(values ?? [])];
   const wrap = h('div.tokens', { class: mixed ? 'mixed' : '' });
   const input = h('input', { autocomplete: 'off', spellcheck: 'false', dataset: { key: field }, 'aria-label': d.label });
@@ -199,7 +212,7 @@ function tokenField(field, { value: values, mixed }) {
   const fmt = d.format ?? ((x) => x);
   let dragFrom = -1;
 
-  const emitChange = () => change(field, list);
+  const emitChange = () => change(field, list, { ids });
   function paint() {
     wrap.querySelectorAll('.token').forEach((n) => n.remove());
     list.forEach((v, i) => {
@@ -309,16 +322,17 @@ function groupNode(g, books) {
 
 /* ----------------------------------------------------------------- Cover */
 
-let fullCover = { id: null, url: null };
+let fullCover = { key: null, url: null };
+const fullKey = (book) => `${book.id}|${book.size}|${book.lastModified}`;
 
 async function loadFullCover(book, frameImg) {
   if (book.newCover || !book.info?.cover) return;
-  if (fullCover.id === book.id && fullCover.url) { frameImg.src = fullCover.url; return; }
+  if (fullCover.key === fullKey(book) && fullCover.url) { frameImg.src = fullCover.url; return; }
   try {
     const blob = await coverBlob(book);
     if (!blob) return;
     if (fullCover.url) URL.revokeObjectURL(fullCover.url);
-    fullCover = { id: book.id, url: URL.createObjectURL(blob) };
+    fullCover = { key: fullKey(book), url: URL.createObjectURL(blob) };
     if (state.selection.size === 1 && state.selection.has(book.id)) frameImg.src = fullCover.url;
   } catch { /* Vorschaubild bleibt */ }
 }
@@ -327,7 +341,7 @@ function coverWell(books) {
   const well = h('div.cover-well', { title: 'Bild hierher ziehen, einfügen (⌘V) oder auswählen' });
   if (books.length === 1) {
     const b = books[0];
-    const url = coverURL(b);
+    const url = b.newCover?.url ?? coverURL(b);
     if (url || b.info?.cover) {
       const img = h('img', { src: url ?? '', alt: 'Cover', draggable: false });
       well.append(h('div.cover-frame', {}, img));
@@ -398,7 +412,12 @@ function headNode(books) {
     return h('div.insp-head', {},
       h('div.insp-title', { id: 'insp-title' }, d.title),
       h('div.insp-sub', { id: 'insp-sub' }, [d.author, d.year].filter(Boolean).join(' · ') || ' '),
-      h('div.insp-chips', {}, chips));
+      h('div.insp-chips', {}, chips),
+      b.info.repaired
+        ? h('div.insp-notice', {}, h('span', { html: icon('alert') }), h('div', {},
+          h('div', {}, 'Die Datei ist beschädigt (z. B. ein abgebrochener Download), ließ sich aber retten. Beim Sichern schreibt Kolophon wieder ein heiles EPUB.'),
+          h('button.btn.small', { onclick: () => emit('repair', [b.id]) }, isDirtyBook(b) ? 'Jetzt sichern und reparieren' : 'Jetzt reparieren')))
+        : null);
   }
   const size = books.reduce((s, b) => s + (b.size ?? 0), 0);
   return h('div.insp-head', {},
@@ -431,17 +450,66 @@ function infoNode(b) {
       row('Cover', b.info.cover ? `${b.info.cover.path.split('/').pop()}${b.info.cover.declared ? '' : ' (erkannt)'}` : 'keins')));
 }
 
+const isDirtyBook = (b) => Object.keys(b.edits).length > 0 || Boolean(b.newCover);
+
+/* ------------------------------------------------ Nicht lesbare Dateien */
+
+function errorPanel(list) {
+  if (list.length > 1) {
+    return h('div.insp-empty', {},
+      h('span', { html: icon('alert') }),
+      h('div', {}, `${plural(list.length, 'Datei lässt', 'Dateien lassen')} sich nicht öffnen.`),
+      h('button.btn.small', { onclick: () => emit('retry', list.map((b) => b.id)) }, h('span', { html: icon('revert') }), 'Erneut lesen'));
+  }
+  const b = list[0];
+  const d = display(b);
+  const id = b.identified;
+  const mode = renameMode(b, state.source);
+  const name = id ? fileNameFor(id) : '';
+  const cover = id?.cover
+    ? h('div.cover-frame', {}, h('img', { src: id.cover, alt: '', referrerPolicy: 'no-referrer' }))
+    : h('div.placeholder', { style: placeholderStyle(d.title, d.author) }, h('div.ph-title', {}, d.title), h('div.ph-rule'), h('div.ph-author', {}, d.author));
+  const row = (k, v) => (v ? h('div.info-row', {}, h('span.k', {}, k), h('span.v', {}, v)) : null);
+  const modified = b.lastModified ? new Date(b.lastModified).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  return h('div.insp-scroll', {},
+    h('div.cover-well', {}, cover),
+    h('div.insp-head', {},
+      h('div.insp-title', {}, d.title),
+      h('div.insp-sub', {}, id ? [d.author, `erkannt über ${id.source}`].filter(Boolean).join(' · ') : 'Lässt sich nicht öffnen'),
+      h('div.insp-notice.err', {}, h('span', { html: icon('alert') }), h('div', {},
+        h('div', {}, b.error),
+        h('div.hint', {}, id
+          ? 'Kolophon kann die Datei nicht ändern. Am besten das Buch neu herunterladen oder aus einer anderen Quelle ersetzen.'
+          : 'Online lässt sich trotzdem herausfinden, welches Buch das ist – gesucht wird mit dem Dateinamen.')))),
+    h('button.btn.tinted.insp-lookup', { onclick: () => emit('lookup') }, h('span', { html: icon('sparkles') }), id ? 'Erneut identifizieren …' : 'Online identifizieren …'),
+    h('div.cover-actions', {},
+      h('button.btn.small', { onclick: () => emit('retry', [b.id]) }, h('span', { html: icon('revert') }), 'Erneut lesen'),
+      id && name && name !== b.name && mode
+        ? h('button.btn.small', { title: name, onclick: () => emit('rename', { id: b.id, name }) }, h('span', { html: icon(mode === 'download' ? 'download' : 'doc') }), mode === 'download' ? 'Mit neuem Namen laden' : 'Umbenennen')
+        : null),
+    h('section', {}, h('div.group-title', {}, 'Datei'), h('div.group.info-rows', {},
+      row('Datei', b.path), row('Größe', formatBytes(b.size)), row('Geändert', modified),
+      id ? row('Erkannt als', [id.title, id.authors.join(', ')].filter(Boolean).join(' – ')) : null,
+      id ? row('Verlag', [id.publisher, id.date?.slice(0, 4)].filter(Boolean).join(', ')) : null,
+      id ? row('ISBN', id.isbn) : null,
+      id && name && name !== b.name ? row('Passender Name', name) : null)));
+}
+
 export function render() {
   closeSuggest();
+  collected.clear();
   const books = selectedBooks();
+  renderIds = books.map((b) => b.id);
   const focusKey = document.activeElement?.closest?.('#inspector') ? document.activeElement.dataset?.key : null;
   const scrollTop = root.querySelector('.insp-scroll')?.scrollTop ?? 0;
   if (!books.length) {
-    const pending = [...state.selection].some((id) => state.byId.get(id)?.status === 'pending');
-    const err = [...state.selection].map((id) => state.byId.get(id)).find((b) => b?.status === 'error');
+    const sel = [...state.selection].map((id) => state.byId.get(id)).filter(Boolean);
+    const errors = sel.filter((b) => b.status === 'error');
+    if (errors.length) { root.replaceChildren(errorPanel(errors)); return; }
+    const pending = sel.some((b) => b.status === 'pending');
     root.replaceChildren(h('div.insp-empty', {},
-      h('span', { html: icon(err ? 'alert' : 'book') }),
-      h('div', {}, err ? `Diese Datei lässt sich nicht lesen:\n${err.error}` : pending ? 'Wird gelesen …' : state.books.length ? 'Kein Buch ausgewählt' : 'Noch keine Bücher geöffnet')));
+      h('span', { html: icon('book') }),
+      h('div', {}, pending ? 'Wird gelesen …' : state.books.length ? 'Kein Buch ausgewählt' : 'Noch keine Bücher geöffnet')));
     return;
   }
   const lookup = h('button.btn.tinted.insp-lookup', { onclick: () => emit('lookup') }, h('span', { html: icon('sparkles') }), books.length > 1 ? 'Online ergänzen …' : 'Online-Metadaten suchen …');
@@ -467,6 +535,8 @@ on('edits', ({ ids, fields }) => {
   if ([...ids].some((id) => state.selection.has(id))) render();
   else if (fields.has('cover')) render();
 });
+on('identified', ({ id }) => { if (state.selection.has(id)) setTimeout(render, 0); });
+on('book-changed', (id) => { if (state.selection.has(id)) render(); });
 on('thumb', (id) => {
   if (state.selection.has(id) && state.selection.size > 1) render();
 });

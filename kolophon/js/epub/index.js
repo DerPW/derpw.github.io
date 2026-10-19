@@ -101,6 +101,7 @@ export async function readBook(src) {
     uid: info.uid,
     cover,
     coverPage,
+    repaired: Boolean(zip.recovered),
     encrypted: Boolean(findEntry(zip, 'META-INF/encryption.xml')),
     drm: Boolean(findEntry(zip, 'META-INF/rights.xml')),
   };

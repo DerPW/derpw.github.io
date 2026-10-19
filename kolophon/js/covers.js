@@ -33,8 +33,13 @@ async function toBlob(c, type, quality) {
   return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('Bild konnte nicht kodiert werden'))), type, quality));
 }
 
-async function scaled(blob, maxW, maxH) {
-  const img = await decode(blob);
+async function scaled(blob, maxW, maxH, { fast = false } = {}) {
+  let img = null;
+  if (fast && 'createImageBitmap' in window && Number.isFinite(maxH)) {
+    // Große Cover (bis 3000 px) gleich beim Dekodieren verkleinern – spart Zeit und Speicher
+    try { img = await createImageBitmap(blob, { resizeHeight: maxH, resizeQuality: 'high' }); } catch { img = null; }
+  }
+  img ??= await decode(blob);
   const { width, height } = dims(img);
   if (!width || !height) throw new Error('Leeres Bild');
   const s = Math.min(1, maxW / width, maxH / height);
@@ -80,6 +85,28 @@ async function cachePut(key, value) {
   } catch { /* privates Fenster o. Ä. */ }
 }
 
+/** Hält den Zwischenspeicher klein: nur die zuletzt erzeugten Vorschaubilder bleiben. */
+export async function pruneThumbCache(max = 6000) {
+  const d = await db();
+  const store = d.transaction('thumbs').objectStore('thumbs');
+  const count = await new Promise((res) => { const r = store.count(); r.onsuccess = () => res(r.result); r.onerror = () => res(0); });
+  if (count <= max) return;
+  const items = [];
+  await new Promise((res) => {
+    const r = d.transaction('thumbs').objectStore('thumbs').openCursor();
+    r.onsuccess = () => {
+      const c = r.result;
+      if (!c) return res();
+      items.push([c.key, c.value?.time ?? 0]);
+      c.continue();
+    };
+    r.onerror = () => res();
+  });
+  items.sort((a, b) => a[1] - b[1]);
+  const w = d.transaction('thumbs', 'readwrite').objectStore('thumbs');
+  for (const [key] of items.slice(0, items.length - max)) w.delete(key);
+}
+
 export async function clearThumbCache() {
   try {
     const d = await db();
@@ -93,7 +120,7 @@ export async function thumbnail(key, getBlob) {
   if (hit?.blob) return { url: URL.createObjectURL(hit.blob), width: hit.width, height: hit.height };
   const blob = await getBlob();
   if (!blob) return null;
-  const s = await scaled(blob, THUMB_H * 0.8, THUMB_H);
+  const s = await scaled(blob, THUMB_H * 0.8, THUMB_H, { fast: true });
   const type = 'image/webp';
   let out = await toBlob(s.canvas, type, 0.82);
   if (out.type !== type) out = await toBlob(s.canvas, 'image/jpeg', 0.84);

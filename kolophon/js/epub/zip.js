@@ -43,18 +43,47 @@ async function readRange(blob, start, end) {
 
 const sizeOf = (src) => (src instanceof Uint8Array ? src.length : src.size);
 
-/** Liest das zentrale Verzeichnis. `src` ist ein Blob/File oder Uint8Array. */
+/** Was steckt in einer Datei, die kein ZIP ist? Für verständliche Fehlermeldungen. */
+function sniff(bytes) {
+  const str = (a, b) => String.fromCharCode(...bytes.subarray(a, b));
+  if (str(0, 4) === '%PDF') return 'Das ist eine PDF-Datei, kein EPUB.';
+  if (bytes.length > 68 && str(60, 68) === 'BOOKMOBI') return 'Das ist eine MOBI/AZW-Datei (Kindle), kein EPUB.';
+  if (str(0, 5) === '<?xml' || str(0, 1) === '<') return 'Die Datei enthält nur XML/HTML-Text, kein EPUB-Paket.';
+  if (str(0, 2) === 'PK') return null;
+  return 'Die Datei ist kein ZIP-Paket und damit kein EPUB.';
+}
+
+/**
+ * Liest das zentrale Verzeichnis. `src` ist ein Blob/File oder Uint8Array.
+ * Fehlt es oder ist es beschädigt (z. B. abgebrochener Download), werden die Einträge
+ * aus den lokalen Köpfen rekonstruiert – beim Sichern entsteht dann wieder ein heiles ZIP.
+ */
 export async function openZip(src) {
   const size = sizeOf(src);
-  if (size < 22) throw new Error('Keine ZIP-Datei');
-  const tailStart = Math.max(0, size - 65557);
-  const tail = await readRange(src, tailStart, size);
-  const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
-  let eocd = -1;
-  for (let i = tail.length - 22; i >= 0; i--) {
-    if (tv.getUint32(i, true) === SIG_END && i + 22 + tv.getUint16(i + 20, true) <= tail.length) { eocd = i; break; }
+  const start = await readRange(src, 0, Math.min(size, 80));
+  const notZip = size < 4 ? 'Die Datei ist leer.' : sniff(start) ?? (size < 22 ? 'Die Datei ist zu klein für ein EPUB.' : null);
+  if (notZip) { const err = new Error(notZip); err.notZip = true; throw err; }
+  try {
+    return await readCentral(src, size);
+  } catch (err) {
+    const rec = await recoverZip(src);
+    if (rec.entries.length) return rec;
+    throw err;
   }
-  if (eocd < 0) throw new Error('Keine gültige ZIP-Datei (Verzeichnisende fehlt)');
+}
+
+async function readCentral(src, size) {
+  let tailStart = Math.max(0, size - 4096);
+  let tail = await readRange(src, tailStart, size);
+  let eocd = findEOCD(tail);
+  if (eocd < 0 && tailStart > 0) {
+    // Lange ZIP-Kommentare sind selten – nur dann das ganze mögliche Ende lesen
+    tailStart = Math.max(0, size - 65557);
+    tail = await readRange(src, tailStart, size);
+    eocd = findEOCD(tail);
+  }
+  if (eocd < 0) throw new Error('Beschädigte ZIP-Datei (Verzeichnisende fehlt)');
+  const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
   let count = tv.getUint16(eocd + 10, true);
   let cdSize = tv.getUint32(eocd + 12, true);
   let cdOffset = tv.getUint32(eocd + 16, true);
@@ -74,6 +103,7 @@ export async function openZip(src) {
   // Manche Werkzeuge hängen Daten vor das ZIP: Versatz aus der Lage des Verzeichnisses ableiten.
   const eocdAbs = tailStart + eocd;
   const shift = eocdAbs - cdSize - cdOffset > 0 && count > 0 ? eocdAbs - cdSize - cdOffset : 0;
+  if (cdOffset + shift + cdSize > size) throw new Error('Beschädigtes ZIP-Verzeichnis');
 
   const cd = await readRange(src, cdOffset + shift, cdOffset + shift + cdSize);
   const cv = new DataView(cd.buffer, cd.byteOffset, cd.byteLength);
@@ -121,9 +151,101 @@ export async function openZip(src) {
     entries.push(e);
     p += 46 + nameLen + extraLen + commentLen;
   }
-  const byName = new Map();
-  for (const e of entries) if (!byName.has(e.name)) byName.set(e.name, e);
-  return { size, entries, byName, comment };
+  if (entries.length < count) throw new Error('Beschädigtes ZIP-Verzeichnis');
+  return indexed({ size, entries, comment });
+}
+
+function indexed(zip) {
+  zip.byName = new Map();
+  for (const e of zip.entries) if (!zip.byName.has(e.name)) zip.byName.set(e.name, e);
+  return zip;
+}
+
+function findEOCD(tail) {
+  const tv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
+  for (let i = tail.length - 22; i >= 0; i--) {
+    if (tv.getUint32(i, true) === SIG_END && i + 22 + tv.getUint16(i + 20, true) <= tail.length) return i;
+  }
+  return -1;
+}
+
+const SIG_DESC = 0x08074b50;
+
+/** Rekonstruiert die Einträge aus den lokalen Köpfen, wenn das zentrale Verzeichnis fehlt. */
+async function recoverZip(src) {
+  const bytes = src instanceof Uint8Array ? src : new Uint8Array(await src.arrayBuffer());
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const n = bytes.length;
+  const sigAt = (i, sig) => i + 4 <= n && v.getUint32(i, true) === sig;
+  const nextSig = (from) => {
+    for (let j = from; j + 4 <= n; j++) {
+      if (bytes[j] !== 0x50 || bytes[j + 1] !== 0x4b) continue;
+      const sig = v.getUint32(j, true);
+      if (sig === SIG_LOCAL && !plausibleLocal(j)) continue; // zufällige Bytefolge in komprimierten Daten
+      if (sig === SIG_LOCAL || sig === SIG_CENTRAL || sig === SIG_DESC || sig === SIG_END) return j;
+    }
+    return -1;
+  };
+  const plausibleLocal = (j) => {
+    if (j + 30 > n) return false;
+    const needed = v.getUint16(j + 4, true);
+    const method = v.getUint16(j + 8, true);
+    const nameLen = v.getUint16(j + 26, true);
+    if (needed > 63 || (method !== 0 && method !== 8) || !nameLen || nameLen > 1024 || j + 30 + nameLen > n) return false;
+    for (let k = j + 30; k < j + 30 + nameLen; k++) if (bytes[k] < 0x20) return false;
+    return true;
+  };
+  const entries = [];
+  let i = sigAt(0, SIG_LOCAL) ? 0 : nextSig(0);
+  while (i >= 0 && i + 30 <= n && sigAt(i, SIG_LOCAL)) {
+    const flags = v.getUint16(i + 6, true);
+    const method = v.getUint16(i + 8, true);
+    let crc = v.getUint32(i + 14, true);
+    let csize = v.getUint32(i + 18, true);
+    let usize = v.getUint32(i + 22, true);
+    const nameLen = v.getUint16(i + 26, true);
+    const extraLen = v.getUint16(i + 28, true);
+    const data = i + 30 + nameLen + extraLen;
+    if (data > n) break;
+    let next;
+    let known = true;
+    if (flags & 0x0008 || (method === 8 && csize === 0)) {
+      // Größen stehen erst im Datendeskriptor hinter den Daten
+      let j = nextSig(data);
+      while (j >= 0 && sigAt(j, SIG_DESC) && v.getUint32(j + 8, true) !== j - data) j = nextSig(j + 4);
+      if (j >= 0 && sigAt(j, SIG_DESC)) {
+        crc = v.getUint32(j + 4, true); csize = v.getUint32(j + 8, true); usize = v.getUint32(j + 12, true);
+        next = j + 16;
+      } else if (j >= 0) {
+        csize = j - data;
+        if (j - 12 >= data && v.getUint32(j - 8, true) === j - 12 - data) {
+          crc = v.getUint32(j - 12, true); csize = j - 12 - data; usize = v.getUint32(j - 4, true);
+        } else known = false;
+        next = j;
+      } else break; // abgeschnitten
+    } else {
+      if (data + csize > n) break; // abgeschnitten
+      next = data + csize;
+    }
+    const nameBytes = bytes.slice(i + 30, i + 30 + nameLen);
+    const e = {
+      name: decodeName(nameBytes, flags), nameBytes, madeBy: 20, needed: 20, flags, method,
+      time: v.getUint16(i + 10, true), date: v.getUint16(i + 12, true), crc, csize, usize,
+      internal: 0, external: 0, offset: i, comment: new Uint8Array(0),
+    };
+    if (!known) {
+      try {
+        const raw = bytes.subarray(data, data + csize);
+        const plain = method === 0 ? raw : await inflate(raw);
+        e.crc = crc32(plain);
+        e.usize = plain.length;
+      } catch { i = nextSig(next); continue; }
+    }
+    if (!e.name.endsWith('/') || csize) entries.push(e);
+    i = sigAt(next, SIG_LOCAL) ? next : nextSig(next);
+    if (i >= 0 && !sigAt(i, SIG_LOCAL)) break;
+  }
+  return indexed({ size: n, entries, comment: new Uint8Array(0), recovered: true });
 }
 
 /** Findet einen Eintrag – exakt oder ohne Beachtung der Groß-/Kleinschreibung. */
@@ -294,7 +416,7 @@ export async function rewriteZip(src, zip, changes = new Map()) {
 
 /** Einfaches ZIP aus mehreren Dateien (unkomprimiert) – für Downloads mehrerer Bücher. */
 export async function makeZip(files) {
-  const empty = { entries: [], byName: new Map(), comment: new Uint8Array(0) };
+  const empty = indexed({ entries: [], comment: new Uint8Array(0) });
   const changes = new Map();
   for (const { name, blob } of files) changes.set(name, new Uint8Array(await blob.arrayBuffer()));
   // .epub ist bereits gepackt – nicht noch einmal komprimieren.

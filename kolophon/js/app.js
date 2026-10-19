@@ -1,18 +1,19 @@
 // Einstieg: Öffnen, Einlesen, Sichern, Werkzeugleiste, Tastatur, Drag & Drop, Einstellungen.
 import { h, $, icon, toast, menu, closeMenu, sheet, sheetOpen, closeTopSheet, confirmSheet, plural, mod, isMac, kbd, formatBytes } from './ui.js';
 import {
-  state, settings, setSetting, setBooks, on, emit, dirtyBooks, undo, redo, apply, revert, commitSaved, value,
+  state, settings, setSetting, setBooks, on, emit, dirtyBooks, undo, redo, apply, revert, commitSaved, value, makeBook, replaceBooks,
 } from './state.js';
 import * as library from './library.js';
 import * as inspector from './inspector.js';
 import {
   canAccessFS, canPickFiles, pickFolder, pickFiles, pickFolderFallback, pickFilesFallback, captureDrop, getFile, writeFile,
-  recentFolders, openRecent, forgetFolder, download,
+  recentFolders, openRecent, forgetFolder, download, renameMode, renameEntry, listDirectory, ensurePermission,
 } from './fs.js';
 import { readBook, writeBook } from './epub/index.js';
+import { sameValue } from './epub/text.js';
 import { findEntry, makeZip } from './epub/zip.js';
-import { prepareCover, clearThumbCache } from './covers.js';
-import { openLookup } from './lookup/sheet.js';
+import { prepareCover, clearThumbCache, thumbnail, pruneThumbCache } from './covers.js';
+import { openLookup, fileNameFor } from './lookup/sheet.js';
 import { SOURCES, SOURCE_ORDER } from './lookup/sources.js';
 import { demoListing } from './demo.js';
 
@@ -88,6 +89,7 @@ function updateChrome() {
   els.save.title = copy ? `Geänderte Bücher als Kopie herunterladen (${kbd('⌘S')})` : `Änderungen in die Dateien schreiben (${kbd('⌘S')})`;
   els.saveIcon.innerHTML = icon(copy ? 'download' : 'save');
   els.lookup.disabled = !hasBooks || Boolean(state.loading);
+  $('#btn-refresh').title = copy ? 'Neu einlesen geht nur in Chrome & Co. (hier wird mit Kopien gearbeitet)' : `Ordner neu einlesen (${kbd('⌥⌘R')})`;
   els.lookup.title = state.selection.size > 1 ? `Ausgewählte Bücher online ergänzen (${kbd('⌘K')})` : state.selection.size ? `Online-Metadaten suchen (${kbd('⌘K')})` : `Alle Bücher dieser Ansicht online ergänzen (${kbd('⌘K')})`;
   for (const b of document.querySelectorAll('#view-switch [data-view]')) b.setAttribute('aria-checked', String(b.dataset.view === settings.view));
   $('#view-switch .seg-thumb').style.transform = settings.view === 'list' ? 'translateX(36px)' : '';
@@ -135,6 +137,7 @@ async function openListing(promise) {
 }
 
 async function readOne(book) {
+  book.error = null;
   try {
     const file = await getFile(book);
     book.size = file.size;
@@ -190,6 +193,85 @@ async function readAll() {
   inspector.render();
 }
 
+/* ------------------------------------------------------------ Neu einlesen */
+
+/**
+ * Liest den Ordner neu ein: neue Dateien kommen dazu, gelöschte fallen weg, geänderte und
+ * nicht lesbare werden neu gelesen. Ungesicherte Änderungen bleiben erhalten.
+ */
+async function refresh() {
+  const src = state.source;
+  if (!src || state.loading || state.saving) return;
+  if (src.mode === 'copy') {
+    if (src.demo) toast('Die Beispielbibliothek lebt nur im Browser – da gibt es nichts neu einzulesen.');
+    else toast('Firefox und Safari arbeiten mit Kopien. Zum Aktualisieren den Ordner erneut öffnen.', { action: { label: 'Öffnen …', run: openFolder } });
+    return;
+  }
+  const btn = $('#btn-refresh');
+  btn.classList.add('spin');
+  try {
+    let entries;
+    if (src.root) {
+      if (!(await ensurePermission(src.root, 'readwrite'))) throw new Error('Kein Zugriff auf den Ordner erteilt');
+      entries = (await listDirectory(src.root)).entries;
+    } else {
+      entries = [];
+      for (const b of state.books) {
+        try { await b.handle.getFile(); entries.push({ path: b.path, name: b.name, dir: b.dir, handle: b.handle, parent: b.parent }); } catch { /* gelöscht */ }
+      }
+    }
+    const byPath = new Map(state.books.map((b) => [b.path, b]));
+    const keep = [];
+    const added = [];
+    for (const e of entries) {
+      const old = byPath.get(e.path);
+      if (old) { old.handle = e.handle; old.parent = e.parent; keep.push(old); byPath.delete(e.path); } else added.push(makeBook(e));
+    }
+    const removed = [...byPath.values()];
+    const changed = [];
+    for (const b of keep) {
+      let f;
+      try { f = await b.handle.getFile(); } catch { continue; }
+      if (b.status !== 'ready' || f.size !== b.size || f.lastModified !== b.lastModified) changed.push(b);
+    }
+    replaceBooks([...keep, ...added]);
+    let conflicts = 0;
+    const reread = [...changed, ...added];
+    for (const b of reread) { b.status = 'pending'; if (b.thumb?.url) URL.revokeObjectURL(b.thumb.url); b.thumb = null; }
+    library.render();
+    let i = 0;
+    await Promise.all(Array.from({ length: Math.min(8, reread.length) }, async () => {
+      while (i < reread.length) {
+        const b = reread[i++];
+        const edits = b.edits;
+        const hadEdits = Object.keys(edits).length > 0 || Boolean(b.newCover);
+        await readOne(b);
+        if (b.meta && hadEdits) {
+          // Was außerhalb schon genauso geändert wurde, ist keine offene Änderung mehr
+          for (const f of Object.keys(edits)) if (sameValue(f, edits[f], b.meta[f])) delete edits[f];
+          conflicts++;
+        }
+        library.updateBook(b.id);
+      }
+    }));
+    library.render();
+    updateChrome();
+    inspector.render();
+    const parts = [];
+    if (added.length) parts.push(`${added.length} neu`);
+    if (removed.length) parts.push(`${removed.length} entfernt`);
+    if (changed.length) parts.push(`${changed.length} neu gelesen`);
+    toast(parts.length ? `Aktualisiert: ${parts.join(', ')}` : 'Alles aktuell', { kind: 'success' });
+    const lost = removed.filter((b) => Object.keys(b.edits).length || b.newCover).length;
+    if (lost) toast(`${plural(lost, 'Buch mit ungesicherten Änderungen gibt', 'Bücher mit ungesicherten Änderungen gibt')} es nicht mehr im Ordner.`, { kind: 'error', timeout: 7000 });
+    if (conflicts) toast(`${plural(conflicts, 'Buch wurde', 'Bücher wurden')} außerhalb geändert – deine ungesicherten Änderungen bleiben erhalten.`, { timeout: 7000 });
+  } catch (err) {
+    toast(`Neu einlesen fehlgeschlagen: ${err.message}`, { kind: 'error' });
+  } finally {
+    btn.classList.remove('spin');
+  }
+}
+
 const openFolder = () => openListing(canAccessFS ? pickFolder() : pickFolderFallback());
 const openFiles = () => openListing(canPickFiles ? pickFiles() : pickFilesFallback());
 const openDemo = () => openListing(demoListing());
@@ -197,6 +279,8 @@ const openDemo = () => openListing(demoListing());
 async function openMenu(anchor) {
   const recent = await recentFolders();
   menu(anchor, [
+    state.source ? { label: 'Neu einlesen', icon: 'refresh', shortcut: '⌥⌘R', run: refresh, disabled: state.source.mode === 'copy' } : null,
+    state.source ? '-' : null,
     { label: 'Ordner öffnen …', icon: 'folder', shortcut: '⌘O', run: openFolder },
     { label: 'Dateien öffnen …', icon: 'doc', shortcut: '⇧⌘O', run: openFiles },
     recent.length ? '-' : null,
@@ -234,13 +318,13 @@ async function afterWrite(book, file) {
   info.coverEntry = info.cover ? findEntry(info.zip, info.cover.path) : null;
   delete info.zip;
   if (book.thumb?.url && book.newCover) { URL.revokeObjectURL(book.thumb.url); book.thumb = null; }
-  const newThumb = book.newCover ? { url: URL.createObjectURL(book.newCover.blob), width: book.newCover.width, height: book.newCover.height } : null;
+  const newThumb = book.newCover ? { url: book.newCover.thumbUrl ?? URL.createObjectURL(book.newCover.blob) } : null;
   commitSaved(book, info);
   if (newThumb) book.thumb = newThumb;
 }
 
-async function save() {
-  const books = dirtyBooks();
+async function save(list = dirtyBooks()) {
+  const books = list.filter((b) => b.meta);
   if (!books.length || state.saving) return;
   state.saving = true;
   updateChrome();
@@ -249,28 +333,39 @@ async function save() {
   const outputs = [];
   els.progress.hidden = false;
   let done = 0;
-  try {
-    for (const book of books) {
-      try {
-        const bytes = await bytesFor(book);
-        if (copy) {
-          const file = new File([bytes], book.name, { type: 'application/epub+zip', lastModified: Date.now() });
-          outputs.push({ name: book.path, blob: file });
-          book.file = file;
-          await afterWrite(book, file);
-        } else {
-          const file = await writeFile(book, bytes);
-          await afterWrite(book, file);
-        }
-      } catch (err) {
-        errors.push({ book, err });
-      }
-      done++;
-      els.progressBar.style.width = `${(done / books.length) * 100}%`;
-      library.updateBook(book.id);
+  let next = 0;
+  if (!copy) {
+    // Schreibrechte vorab und nacheinander erfragen, solange der Klick noch als Nutzeraktion gilt
+    for (const b of books) {
+      if (b.handle && !(await ensurePermission(b.handle))) { toast('Kein Schreibzugriff erteilt', { kind: 'error' }); state.saving = false; updateChrome(); return; }
     }
+  }
+  const one = async (book) => {
+    try {
+      const bytes = await bytesFor(book);
+      if (copy) {
+        const file = new File([bytes], book.name, { type: 'application/epub+zip', lastModified: Date.now() });
+        outputs.push({ name: book.path, blob: file });
+        book.file = file;
+        await afterWrite(book, file);
+      } else {
+        await afterWrite(book, await writeFile(book, bytes));
+      }
+    } catch (err) {
+      errors.push({ book, err });
+    }
+    done++;
+    els.progressBar.style.width = `${(done / books.length) * 100}%`;
+    library.updateBook(book.id);
+  };
+  try {
+    // Mehrere Bücher gleichzeitig – jedes wird vollständig gelesen, geprüft und dann ersetzt
+    await Promise.all(Array.from({ length: Math.min(3, books.length) }, async () => {
+      while (next < books.length) await one(books[next++]);
+    }));
     if (copy && outputs.length === 1) download(outputs[0].blob, outputs[0].blob.name);
     else if (copy && outputs.length > 1) {
+      outputs.sort((a, b) => a.name.localeCompare(b.name));
       const zip = await makeZip(outputs);
       download(new Blob([zip], { type: 'application/zip' }), `Kolophon – ${outputs.length} Bücher.zip`);
     }
@@ -301,9 +396,13 @@ async function setCover(blob, sourceLabel = '') {
     const cache = new Map();
     for (const b of books) {
       const mime = b.info?.cover?.mime === 'image/png' ? 'image/png' : 'image/jpeg';
-      if (!cache.has(mime)) cache.set(mime, await prepareCover(blob, { maxWidth: settings.coverMax, mime }));
+      if (!cache.has(mime)) {
+        const prepared = await prepareCover(blob, { maxWidth: settings.coverMax, mime });
+        prepared.thumbUrl = (await thumbnail(null, async () => prepared.blob))?.url;
+        cache.set(mime, prepared);
+      }
       const p = cache.get(mime);
-      patch.push({ id: b.id, field: 'cover', value: { ...p, url: URL.createObjectURL(p.blob), source: sourceLabel } });
+      patch.push({ id: b.id, field: 'cover', value: { ...p, url: URL.createObjectURL(p.blob), thumbUrl: p.thumbUrl, source: sourceLabel } });
     }
     apply(patch, 'Cover');
     const p = patch[0].value;
@@ -346,17 +445,83 @@ async function exportCover(id) {
 
 function lookup() {
   if (!state.books.length || state.loading) return;
-  let books = selected();
-  if (!books.length) books = library.visibleOrder().map((id) => state.byId.get(id)).filter((b) => b?.meta);
-  if (!books.length) return;
-  openLookup(books);
+  const chosen = [...state.selection].map((id) => state.byId.get(id)).filter(Boolean);
+  const readable = chosen.filter((b) => b.meta);
+  const unreadable = chosen.filter((b) => b.status === 'error');
+  if (!readable.length && unreadable.length) {
+    if (unreadable.length > 1) toast('Nicht lesbare Bücher werden einzeln identifiziert – erst dieses.');
+    openLookup([unreadable[0]], { rename: renameMode(unreadable[0], state.source) });
+    return;
+  }
+  const books = readable.length ? readable : library.visibleOrder().map((id) => state.byId.get(id)).filter((b) => b?.meta);
+  if (books.length) openLookup(books);
 }
+
+/* -------------------------------------------- Identifizieren, Umbenennen */
+
+async function renameBook(book, name) {
+  const mode = renameMode(book, state.source);
+  if (!name || name === book.name) return;
+  try {
+    if (mode === 'download') {
+      download(await getFile(book), name);
+      toast(`Kopie als „${name}“ heruntergeladen`, { kind: 'success' });
+      return;
+    }
+    if (mode !== 'move') { toast('Umbenennen geht nur, wenn der Ordner geöffnet ist.', { kind: 'error' }); return; }
+    const handle = await renameEntry(book, name);
+    book.handle = handle;
+    book.name = name;
+    book.path = book.dir ? `${book.dir}/${name}` : name;
+    toast(`Umbenannt in „${name}“`, { kind: 'success' });
+  } catch (err) {
+    toast(`Umbenennen fehlgeschlagen: ${err.message}`, { kind: 'error', timeout: 7000 });
+  }
+  library.updateBook(book.id);
+  emit('book-changed', book.id);
+}
+
+on('identified', async ({ id, identified, rename }) => {
+  const book = state.byId.get(id);
+  if (!book) return;
+  book.identified = identified;
+  library.updateBook(id);
+  library.renderSidebar();
+  if (rename) await renameBook(book, rename);
+  else toast(`Zugeordnet: ${identified.title}${identified.authors.length ? ` – ${identified.authors[0]}` : ''}`, { kind: 'success' });
+});
+on('rename', ({ id, name }) => { const b = state.byId.get(id); if (b) renameBook(b, name); });
+
+on('retry', async (ids) => {
+  const books = ids.map((id) => state.byId.get(id)).filter(Boolean);
+  for (const b of books) { b.status = 'pending'; if (b.thumb?.url) URL.revokeObjectURL(b.thumb.url); b.thumb = null; library.updateBook(b.id); }
+  await Promise.all(books.map(readOne));
+  for (const b of books) library.updateBook(b.id);
+  const still = books.filter((b) => b.status === 'error').length;
+  toast(still ? `${plural(still, 'Datei lässt', 'Dateien lassen')} sich weiterhin nicht öffnen.` : 'Erfolgreich gelesen', { kind: still ? 'error' : 'success' });
+  library.renderSidebar();
+  updateChrome();
+  inspector.render();
+});
+on('repair', (ids) => save(ids.map((id) => state.byId.get(id)).filter(Boolean)));
 
 /* ------------------------------------------------------------ Kontextmenü */
 
 on('context-menu', ({ x, y }) => {
   const books = selected();
-  if (!books.length) return;
+  if (!books.length) {
+    const broken = [...state.selection].map((id) => state.byId.get(id)).filter((b) => b?.status === 'error');
+    if (!broken.length) return;
+    const b = broken[0];
+    const name = b.identified ? fileNameFor(b.identified) : '';
+    const mode = renameMode(b, state.source);
+    menu({ x, y }, [
+      { label: 'Online identifizieren …', icon: 'sparkles', shortcut: '⌘K', run: lookup },
+      { label: 'Erneut lesen', icon: 'refresh', run: () => emit('retry', broken.map((x) => x.id)) },
+      broken.length === 1 && name && name !== b.name && mode ? { label: mode === 'download' ? `Laden als „${name}“` : `Umbenennen in „${name}“`, icon: 'doc', run: () => renameBook(b, name) } : null,
+    ]);
+    return;
+  }
   const dirty = books.some((b) => Object.keys(b.edits).length || b.newCover);
   menu({ x, y }, [
     { label: books.length > 1 ? `${books.length} Bücher online ergänzen …` : 'Online-Metadaten suchen …', icon: 'sparkles', shortcut: '⌘K', run: lookup },
@@ -446,6 +611,7 @@ async function renderWelcome() {
 /* ------------------------------------------------------------- Ereignisse */
 
 $('#btn-sidebar').addEventListener('click', () => togglePanel('sidebar'));
+$('#btn-refresh').addEventListener('click', refresh);
 $('#btn-inspector').addEventListener('click', () => togglePanel('inspector'));
 els.save.addEventListener('click', save);
 els.lookup.addEventListener('click', lookup);
@@ -498,6 +664,7 @@ document.addEventListener('keydown', (e) => {
     if (k === 's' && !e.shiftKey) { e.preventDefault(); save(); return; }
     if (k === 'o') { e.preventDefault(); if (e.shiftKey) openFiles(); else openFolder(); return; }
     if (k === 'k') { e.preventDefault(); lookup(); return; }
+    if ((k === 'r' || e.code === 'KeyR') && e.altKey) { e.preventDefault(); refresh(); return; }
     if (k === 'f') { e.preventDefault(); els.search.focus(); els.search.select(); return; }
     if (k === 'i') { e.preventDefault(); togglePanel('inspector'); return; }
     if (k === '1' || k === '2') { e.preventDefault(); setSetting('view', k === '1' ? 'grid' : 'list'); library.render(); updateChrome(); return; }
@@ -514,7 +681,7 @@ document.addEventListener('keydown', (e) => {
   if (inText(document.activeElement)) return;
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
     if (library.moveSelection(e.key, e)) { e.preventDefault(); els.scroller.focus({ preventScroll: true }); }
-  } else if (e.key === 'Enter' && state.selection.size) {
+  } else if (e.key === 'Enter' && state.selection.size && (document.activeElement === els.scroller || document.activeElement === document.body)) {
     e.preventDefault();
     emit('open-book');
   }
@@ -550,6 +717,7 @@ window.addEventListener('dragleave', () => {
 window.addEventListener('drop', (e) => {
   if (!isFileDrag(e)) return;
   e.preventDefault();
+  if (sheetOpen()) { dragDepth = 0; overlay.hidden = true; return; }
   dragDepth = 0;
   overlay.hidden = true;
   if (isImageOnly(e)) {
@@ -569,6 +737,7 @@ window.addEventListener('beforeunload', (e) => {
 
 applyTheme();
 applyPanels();
+(window.requestIdleCallback ?? setTimeout)(() => pruneThumbCache().catch(() => {}));
 updateChrome();
 renderWelcome();
 inspector.render();
