@@ -1,0 +1,21 @@
+{
+  "name": "Lector Lite",
+  "short_name": "Lector",
+  "description": "Turn EPUBs and text into audiobooks with chapters, entirely in your browser.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#12110f",
+  "theme_color": "#b4531a",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
