@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Kolophon – EPUB-Metadaten bearbeiten</title>
+  <meta name="description" content="Titel, Autoren, Reihen, Cover und Beschreibungen von EPUB-Büchern direkt im Browser bearbeiten – mit automatischer Suche bei Apple Books, DNB, Open Library und Google Books. Deine Dateien bleiben lokal.">
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1e1e1e" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/app.css?v=849b252">
+  <script>
+    // Erscheinungsbild vor dem ersten Rendern setzen, damit nichts aufblitzt.
+    try {
+      const s = JSON.parse(localStorage.getItem('kolophon.settings') || '{}');
+      const t = s.theme || 'system';
+      document.documentElement.dataset.theme = t === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : t;
+      if (s.sidebar === false) document.documentElement.dataset.sidebar = 'off';
+      if (s.inspector === false) document.documentElement.dataset.inspector = 'off';
+    } catch {}
+  </script>
+  <script type="importmap">{"imports":{"./js/app.js":"./js/app.js?v=849b252","./js/covers.js":"./js/covers.js?v=849b252","./js/demo.js":"./js/demo.js?v=849b252","./js/fs.js":"./js/fs.js?v=849b252","./js/inspector.js":"./js/inspector.js?v=849b252","./js/langs.js":"./js/langs.js?v=849b252","./js/library.js":"./js/library.js?v=849b252","./js/state.js":"./js/state.js?v=849b252","./js/ui.js":"./js/ui.js?v=849b252","./js/lookup/match.js":"./js/lookup/match.js?v=849b252","./js/lookup/sheet.js":"./js/lookup/sheet.js?v=849b252","./js/lookup/sources.js":"./js/lookup/sources.js?v=849b252","./js/epub/index.js":"./js/epub/index.js?v=849b252","./js/epub/opf.js":"./js/epub/opf.js?v=849b252","./js/epub/text.js":"./js/epub/text.js?v=849b252","./js/epub/xml.js":"./js/epub/xml.js?v=849b252","./js/epub/zip.js":"./js/epub/zip.js?v=849b252"}}</script>
+  <script type="module" src="js/app.js?v=849b252"></script>
+</head>
+<body>
+  <div class="window" id="window">
+    <aside class="sidebar panel" id="sidebar" aria-label="Seitenleiste">
+      <div class="sidebar-brand">
+        <img class="brand-icon" src="assets/icon.svg" alt="">
+        <span class="brand-name">Kolophon</span>
+      </div>
+      <nav class="sidebar-nav" id="sidebar-nav"></nav>
+      <div class="sidebar-foot" id="sidebar-foot"></div>
+    </aside>
+
+    <main class="content" id="content">
+      <header class="toolbar" id="toolbar">
+        <div class="tb-cluster">
+          <button class="glass-btn icon" id="btn-sidebar" title="Seitenleiste ein-/ausblenden (⌃⌘S)" data-icon="sidebar"></button>
+        </div>
+        <div class="tb-title">
+          <h1 id="title">Kolophon</h1>
+          <div class="tb-subtitle" id="subtitle"></div>
+        </div>
+        <div class="tb-spacer"></div>
+        <div class="glass-capsule segmented" id="view-switch" role="radiogroup" aria-label="Darstellung">
+          <span class="seg-thumb" aria-hidden="true"></span>
+          <button role="radio" data-view="grid" title="Raster (⌘1)" data-icon="grid"></button>
+          <button role="radio" data-view="list" title="Liste (⌘2)" data-icon="list"></button>
+        </div>
+        <button class="glass-btn icon" id="btn-sort" title="Sortieren" data-icon="sort"></button>
+        <label class="glass-search" id="search">
+          <span data-icon="search"></span>
+          <input id="search-input" type="search" placeholder="Suchen" autocomplete="off" spellcheck="false" aria-label="Bücher durchsuchen">
+        </label>
+        <button class="glass-btn" id="btn-lookup" title="Online-Metadaten suchen (⌘K)" disabled>
+          <span data-icon="sparkles"></span><span class="btn-label">Online suchen</span>
+        </button>
+        <button class="glass-btn primary" id="btn-save" title="Sichern (⌘S)" disabled>
+          <span data-icon="save" id="save-icon"></span><span class="btn-label" id="save-label">Sichern</span><span class="badge" id="save-count" hidden>0</span>
+        </button>
+        <div class="tb-cluster">
+          <button class="glass-btn icon" id="btn-inspector" title="Informationen ein-/ausblenden (⌘I)" data-icon="inspector"></button>
+        </div>
+      </header>
+
+      <div class="scroller" id="scroller" tabindex="0" aria-label="Bücher">
+        <div class="library" id="library"></div>
+        <div class="welcome" id="welcome" hidden></div>
+        <div class="empty" id="empty" hidden></div>
+      </div>
+
+      <footer class="statusbar" id="statusbar">
+        <span id="status-text"></span>
+        <span class="status-spacer"></span>
+        <label class="size-slider" id="size-slider" title="Größe der Cover">
+          <span data-icon="photo" class="small"></span>
+          <input type="range" min="104" max="240" step="4" id="size-input" aria-label="Covergröße">
+          <span data-icon="photo"></span>
+        </label>
+      </footer>
+      <div class="progress" id="progress" hidden><div class="progress-bar" id="progress-bar"></div></div>
+    </main>
+
+    <aside class="inspector panel" id="inspector" aria-label="Informationen"></aside>
+  </div>
+
+  <div class="drop-overlay" id="drop-overlay" hidden>
+    <div class="drop-card">
+      <div class="drop-icon" data-icon="books"></div>
+      <div class="drop-title">Zum Öffnen loslassen</div>
+      <div class="drop-sub">Ordner oder EPUB-Dateien</div>
+    </div>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+</body>
+</html>
