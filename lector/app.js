@@ -4,18 +4,29 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js?v=97a1a93';
-import { planChunks } from './textprep.js?v=97a1a93';
-import { RATE, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=97a1a93';
-import * as store from './store.js?v=97a1a93';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=97a1a93';
+import { parseFile, parseText } from './book.js?v=ee16eba';
+import { planChunks } from './textprep.js?v=ee16eba';
+import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=ee16eba';
+import * as store from './store.js?v=ee16eba';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=ee16eba';
 
-const VERSION = '0.8.1'; // keep in step with src/lector/__init__.py
-const MAX_CHARS = 300; // Kokoro cuts off input beyond about 510 phoneme tokens
+const VERSION = '0.10.0'; // keep in step with src/lector/__init__.py
+// Characters per passage. Kokoro cuts off input beyond about 510 phoneme tokens, but memory is
+// the real limit: on WebGPU a 300-character passage briefly needs 3-4 GB, 180 characters stay
+// under 1 GB (measured on an M3), for about 15 % less speed.
+const MAX_CHARS = 180;
 const CHARS_PER_SECOND = 15; // spoken characters per second of audio, for estimates
 const CHAPTER_LEAD = 0.5;
 const CHAPTER_TAIL = 1.5;
 const MODEL_MB = { webgpu: 330, wasm: 90 };
+const HAS_GPU = 'gpu' in navigator;
+
+function stored(key, fallback) {
+  try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
+}
+function keep(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* storage unavailable */ }
+}
 
 // Kokoro's voices with the model card's grades; the better ones are marked.
 const VOICES = [
@@ -45,9 +56,13 @@ const state = {
   speed: 1.0,
   format: 'm4b',
   bitrate: '64k',
-  device: null,
+  device: null, // what the model actually runs on, once loaded
+  // 'gpu': WebGPU, fast but the model takes well over a gigabyte; 'cpu': WebAssembly, slower
+  // and much lighter. Without WebGPU there is no choice.
+  runOn: HAS_GPU ? stored('lectorLite.runOn', 'gpu') : 'cpu',
   job: null, // the running or finished job (see startJob)
   resume: null,
+  hw: null, // what the browser tells about this device (see detectHardware)
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -93,7 +108,7 @@ const tts = (() => {
   const listeners = new Set();
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js?v=97a1a93', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=ee16eba', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress' || data.type === 'ready') listeners.forEach((fn) => fn(data));
       if (data.type === 'ready') waiting.get('load')?.resolve(data);
@@ -109,9 +124,18 @@ const tts = (() => {
       if (!worker) start();
       ready ??= new Promise((resolve, reject) => {
         waiting.set('load', { resolve, reject });
-        worker.postMessage({ type: 'load' });
+        worker.postMessage({ type: 'load', prefer: state.runOn === 'cpu' ? 'wasm' : undefined });
       }).then((info) => { state.device = info.device; return info; }, (err) => { ready = null; throw err; });
       return ready;
+    },
+    // Drop the loaded model (and the memory it holds); the next use loads it as now set.
+    reset() {
+      worker?.terminate();
+      worker = null;
+      ready = null;
+      waiting.forEach((w) => w.reject(new Error('reset')));
+      waiting.clear();
+      state.device = null;
     },
     async generate(text, voice, speed) {
       await this.load();
@@ -124,10 +148,49 @@ const tts = (() => {
   };
 })();
 
+// --- the device ---------------------------------------------------------------------------
+
+// Browsers share little about the machine: WebGPU says only the vendor ("apple"), the chip
+// name comes from WebGL (Chromium browsers name it, Safari says "Apple GPU"), memory only from
+// Chromium browsers and never above 8 GB, the core count from all of them.
+function gpuName(renderer) {
+  // "ANGLE (Apple, ANGLE Metal Renderer: Apple M3, Unspecified Version)" -> "Apple M3"
+  // "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+  const angle = /^ANGLE \((.*)\)$/.exec(renderer);
+  const name = angle ? angle[1].split(', ')[1] || '' : renderer;
+  return name.replace(/^ANGLE [^:]*: /, '').replace(/ \(0x[0-9a-f]+\)/i, '')
+    .replace(/ (Direct3D|vs_|OpenGL|Vulkan).*$/, '').replace(/, or similar$/, '').trim();
+}
+
+async function detectHardware() {
+  let gpu = '';
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const info = gl?.getExtension('WEBGL_debug_renderer_info');
+    gpu = gpuName(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : '');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch { /* no WebGL */ }
+  let webgpu = false;
+  try { webgpu = !!(await navigator.gpu?.requestAdapter()); } catch { /* no WebGPU */ }
+  return { gpu, cores: navigator.hardwareConcurrency || 0, memory: navigator.deviceMemory || 0, webgpu };
+}
+
+function hardwareText(hw) {
+  if (!hw) return '';
+  return [
+    hw.gpu,
+    hw.memory ? `${hw.memory >= 8 ? '8+' : hw.memory} GB` : '',
+    hw.cores ? t('hw.cores', { n: hw.cores }) : '',
+    hw.webgpu ? 'WebGPU' : 'WebAssembly',
+  ].filter(Boolean).join(' · ');
+}
+
 // --- rendering --------------------------------------------------------------------------
 
 function render() {
-  $('#tagline').textContent = t('tagline');
+  const chip = $('#tagline');
+  chip.textContent = hardwareText(state.hw) || t('tagline');
+  chip.title = state.hw ? `${t('tagline')}. ${t('hw.note')}` : '';
   $('#lang-toggle').textContent = t('lang.switch');
   $('#footer-version').textContent = `Lector Lite ${VERSION}`;
   const main = $('#view');
@@ -195,6 +258,8 @@ function renderBook() {
       <div class="settings-grid">
         <div class="field"><span>Format</span><div class="segmented">${['m4b', 'mp3'].map((f) => `<button data-action="format" data-value="${f}" class="${f === state.format ? 'on' : ''}">${esc(t(`format.${f}`))} <small>${esc(t(`format.${f}.sub`))}</small></button>`).join('')}</div></div>
         <div class="field"><span>${esc(t('quality'))}</span><div class="segmented">${['48k', '64k', '96k'].map((q) => `<button data-action="bitrate" data-value="${q}" class="${q === state.bitrate ? 'on' : ''}">${esc(t(`quality.${q}`))} <small>${q}</small></button>`).join('')}</div></div>
+        ${HAS_GPU ? `<div class="field"><span>${esc(t('runOn'))}</span><div class="segmented">${['gpu', 'cpu'].map((r) => `<button data-action="run-on" data-value="${r}" class="${r === state.runOn ? 'on' : ''}">${esc(t(`runOn.${r}`))} <small>${esc(t(`runOn.${r}.sub`))}</small></button>`).join('')}</div>
+          <span class="faint small">${esc(t('runOn.note'))}</span></div>` : ''}
       </div>
     </section>
     ${renderGo()}
@@ -243,7 +308,7 @@ function renderGo() {
   const n = state.selected.size;
   const seconds = selectedChars() / CHARS_PER_SECOND / state.speed;
   const bytes = seconds * parseInt(state.bitrate, 10) * 125;
-  const mb = MODEL_MB[state.device || 'wasm'];
+  const mb = MODEL_MB[state.runOn === 'gpu' ? 'webgpu' : 'wasm'];
   return `<div class="card go">
     <div class="summary"><strong>${esc(t('summary', { n, d: duration(seconds), s: fileSize(bytes) }))}</strong>
       <span class="muted small">${esc(t('model.note', { mb }))}</span></div>
@@ -285,10 +350,37 @@ function stepText(j, step, i, at) {
   return duration(spent);
 }
 
+function jobStatus(j) {
+  if (j.step === 'done') return 'done';
+  if (j.cancel) return 'deleting';
+  if (j.error) return 'error';
+  if (j.paused) return 'paused';
+  return j.pauseRequested ? 'pausing' : 'running';
+}
+
+function summaryText(j) {
+  if (j.step === 'done') return `${t('time.took', { d: duration(jobElapsed(j)) })} · ${duration(j.audioSeconds)} · ${fileSize(j.result?.size || 0)}`;
+  // A pause or delete takes effect after the passage being read; say that it is on its way.
+  if (j.cancel) return t('job.deleting');
+  if (j.pauseRequested) return t('job.pausing');
+  const left = j.paused || j.error ? null : remaining(j);
+  return [t('time.runningFor', { d: duration(jobElapsed(j)) }), left != null ? t('time.left', { d: duration(left) }) : ''].filter(Boolean).join(' · ');
+}
+
+function jobActions(j, status) {
+  const actions = [];
+  if (status === 'deleting') return '';
+  if (status === 'running' && j.step !== 'export') actions.push(`<button class="icon-btn" data-action="job-pause" title="${esc(t('job.pause'))}" aria-label="${esc(t('job.pause'))}">${icon('pause')}</button>`);
+  if (status === 'paused' || status === 'error') actions.push(`<button class="btn" data-action="job-resume">${icon('resume')} ${esc(t(status === 'error' ? 'job.retry' : 'job.resume'))}</button>`);
+  actions.push(`<button class="icon-btn" data-action="job-delete" title="${esc(t('job.delete'))}" aria-label="${esc(t('job.delete'))}">${icon('trash')}</button>`);
+  return actions.join('');
+}
+
 function renderJobView() {
   const j = state.job;
   const at = STEPS.indexOf(j.step);
-  const left = remaining(j);
+  const status = jobStatus(j);
+  const pill = { running: 'accent', pausing: 'warn', deleting: 'warn', paused: 'warn', error: 'bad', done: 'ok' }[status];
   const sizes = j.chapters.map((c) => c.chars || 1);
   const total = sizes.reduce((a, b) => a + b, 0) || 1;
   let before = 0;
@@ -297,9 +389,6 @@ function renderJobView() {
     before += sizes[i];
     return `<div class="seg ${i === j.current && j.step === 'synth' ? 'current' : ''}" style="flex:${sizes[i] / total}" title="${esc(`${i + 1}. ${c.title}`)}"><div style="width:${(fill * 100).toFixed(1)}%"></div></div>`;
   }).join('');
-  const summary = j.step === 'done'
-    ? `${t('time.took', { d: duration(jobElapsed(j)) })} · ${duration(j.audioSeconds)} · ${fileSize(j.result?.size || 0)}`
-    : [t('time.runningFor', { d: duration(jobElapsed(j)) }), left != null ? t('time.left', { d: duration(left) }) : ''].filter(Boolean).join(' · ');
   const steps = STEPS.map((step, i) => {
     const cls = i < at || j.step === 'done' ? 'done' : i === at ? 'current' : 'todo';
     return `<li class="step ${cls}"><span class="step-dot">${cls === 'done' ? icon('check') : ''}</span>
@@ -313,11 +402,11 @@ function renderJobView() {
     </div>
     <div class="card job-panel">
       ${j.step === 'done' ? `<h3>${esc(t('job.done'))}</h3>` : ''}
-      <div class="job-status"><span id="job-summary">${esc(summary)}</span></div>
+      <div class="job-status"><span class="pill ${pill}">${esc(t(`status.${status}`))}</span><span id="job-summary">${esc(summaryText(j))}</span></div>
       <ol class="steps">${steps}</ol>
       ${j.step !== 'done' ? `<div class="chapter-bar">${bar}</div>
         <div class="job-detail faint small">${esc(t('chapter.of', { c: Math.min(j.current + 1, j.chapters.length), n: j.chapters.length }))}</div>
-        <div class="notice info">${esc(t('keep.open'))}</div>` : ''}
+        ${['running', 'pausing'].includes(status) ? `<div class="notice info">${esc(t('keep.open'))}</div>` : ''}` : ''}
       ${j.error ? `<div class="job-error">${esc(t('job.failed', { msg: j.error }))}</div>` : ''}
       <div class="row">
         ${j.step === 'done'
@@ -325,7 +414,7 @@ function renderJobView() {
           ${navigator.canShare?.({ files: [new File([], 'x.m4b')] }) ? `<button class="btn" data-action="share">${icon('share')} ${esc(t('job.share'))}</button>` : ''}</div>
           <button class="btn ghost" data-action="new">${esc(t('job.new'))}</button>`
     : `<span class="faint small">${esc(state.device ? t(`model.device.${state.device}`) : '')}</span>
-          ${j.error ? `<button class="btn primary" data-action="resume-job">${esc(t('resume.go'))}</button>` : `<button class="btn ghost danger" data-action="cancel">${icon('stop')} ${esc(t('job.cancel'))}</button>`}`}
+          <div class="job-actions">${jobActions(j, status)}</div>`}
       </div>
     </div>
   </div>`;
@@ -344,6 +433,10 @@ function updateTab() {
     document.title = document.hidden ? `✓ ${t('tab.done', { title: j.title })} – Lector Lite` : 'Lector Lite';
     return;
   }
+  if (j.paused || j.error) {
+    document.title = `${t(`status.${jobStatus(j)}`)} · ${j.title} – Lector Lite`;
+    return;
+  }
   const left = remaining(j);
   const spent = jobElapsed(j);
   const pct = left != null && spent + left > 0 ? Math.round((spent / (spent + left)) * 100) : 0;
@@ -354,8 +447,7 @@ setInterval(() => {
   if (state.job && state.job.step !== 'done') {
     const j = state.job;
     const summary = $('#job-summary');
-    const left = remaining(j);
-    if (summary) summary.textContent = [t('time.runningFor', { d: duration(jobElapsed(j)) }), left != null ? t('time.left', { d: duration(left) }) : ''].filter(Boolean).join(' · ');
+    if (summary) summary.textContent = summaryText(j);
     const at = STEPS.indexOf(j.step);
     STEPS.forEach((step, i) => {
       const el = $(`[data-step="${step}"]`);
@@ -418,6 +510,7 @@ function enterStep(j, step) {
 }
 
 async function run(j, doneMap) {
+  j.running = true;
   await keepAwake(true);
   updateJobView();
   try {
@@ -437,26 +530,28 @@ async function run(j, doneMap) {
       if (ch.done) continue;
       j.current = ci;
       updateJobView();
-      const parts = [new Float32Array(Math.round(CHAPTER_LEAD * RATE))];
+      const track = new PcmTrack();
+      track.pause(CHAPTER_LEAD);
       const before = j.chapters.reduce((n, c) => n + (c.done ? c.chars : 0), 0);
       let read = 0;
       for (const chunk of planChunks(ch.blocks, MAX_CHARS)) {
+        await pausePoint(j);
         if (j.cancel) throw new Error('cancelled');
         const t0 = performance.now();
         const { audio } = await tts.generate(chunk.text, j.voice, j.speed);
         j.sessionSecs += (performance.now() - t0) / 1000;
         j.sessionChars += chunk.text.length;
-        parts.push(audio, new Float32Array(Math.round(chunk.pause * RATE)));
+        track.add(audio);
+        track.pause(chunk.pause);
         read += chunk.text.length;
         j.doneChars = before + Math.min(ch.chars, read);
         updateBar(j);
       }
-      parts.push(new Float32Array(Math.round(CHAPTER_TAIL * RATE)));
-      const samples = concat(parts);
-      const bytes = await encodeChapter(samples, codec, j.bitrate, { title: ch.title, album: j.title, artist: j.author, track: `${ci + 1}/${j.chapters.length}` });
-      const record = { blob: new Blob([bytes], { type: codec === 'aac' ? 'audio/mp4' : 'audio/mpeg' }), seconds: samples.length / RATE, title: ch.title };
-      await store.saveChapter(ci, record);
-      doneMap.set(ci, record);
+      track.pause(CHAPTER_TAIL);
+      const bytes = await encodeChapter(track, codec, j.bitrate, { title: ch.title, album: j.title, artist: j.author, track: `${ci + 1}/${j.chapters.length}` });
+      await store.saveChapter(ci, { blob: new Blob([bytes], { type: codec === 'aac' ? 'audio/mp4' : 'audio/mpeg' }), seconds: track.seconds, title: ch.title });
+      // Only the length stays in memory; the audio is in IndexedDB until the book is put together.
+      doneMap.set(ci, { seconds: track.seconds, title: ch.title });
       ch.done = true;
       j.doneChars = j.chapters.reduce((n, c) => n + (c.done ? c.chars : 0), 0);
     }
@@ -464,7 +559,11 @@ async function run(j, doneMap) {
     enterStep(j, 'export');
     j.exportProgress = 0;
     updateJobView();
-    const chapters = j.chapters.map((c, i) => ({ ...doneMap.get(i), title: c.title }));
+    const saved = await store.loadChapters();
+    const chapters = j.chapters.map((c, i) => {
+      if (!saved.get(i)?.blob) throw new Error(t('err.chapterLost', { n: i + 1 }));
+      return { ...saved.get(i), title: c.title };
+    });
     j.audioSeconds = chapters.reduce((n, c) => n + c.seconds, 0);
     const base = safeName(j.author ? `${j.author} - ${j.title}` : j.title, 120);
     if (j.format === 'm4b') {
@@ -477,24 +576,53 @@ async function run(j, doneMap) {
       j.result = await zipChapters(chapters, base, j.cover);
       j.fileName = `${base}.zip`;
     }
-    j.resultUrl = URL.createObjectURL(j.result);
+    if (j.cancel) throw new Error('cancelled');
     if (j.runStarted) { j.runSeconds += (Date.now() - j.runStarted) / 1000; j.runStarted = null; }
     enterStep(j, 'done');
     await store.saveJob({ ...strip(j), finished: true, result: j.result, fileName: j.fileName,
       audioSeconds: j.audioSeconds, runSeconds: j.runSeconds });
+    // Take the copy IndexedDB keeps on disk, so the book is not held in memory as well.
+    j.result = (await store.loadJob())?.result || j.result;
+    j.resultUrl = URL.createObjectURL(j.result);
   } catch (err) {
     if (j.runStarted) { j.runSeconds += (Date.now() - j.runStarted) / 1000; j.runStarted = null; }
-    if (String(err?.message) === 'cancelled') {
-      state.job = null;
-      await loadResume();
-      render();
-    } else {
-      j.error = String(err?.message || err);
+    if (j.cancel) {
+      await discardJob();
+      return;
     }
+    j.error = String(err?.message || err);
   } finally {
+    j.running = false;
     await keepAwake(false);
-    if (state.job) updateJobView();
+    if (state.job === j) updateJobView();
   }
+}
+
+// Pause between passages: the clocks stop and the page may sleep until Continue is pressed.
+async function pausePoint(j) {
+  if (!j.pauseRequested || j.cancel) return;
+  const now = Date.now();
+  if (j.runStarted) { j.runSeconds += (now - j.runStarted) / 1000; j.runStarted = null; }
+  if (j.stepStarted) { j.stepSeconds[j.step] += (now - j.stepStarted) / 1000; j.stepStarted = null; }
+  j.pauseRequested = false;
+  j.paused = true;
+  await keepAwake(false);
+  updateJobView();
+  await new Promise((resolve) => { j.wake = resolve; });
+  j.wake = null;
+  j.paused = false;
+  j.runStarted = Date.now();
+  j.stepStarted = Date.now();
+  if (!j.cancel) await keepAwake(true);
+  updateJobView();
+}
+
+async function discardJob() {
+  await store.clear();
+  state.job = null;
+  state.resume = null;
+  render();
+  updateTab();
 }
 
 function updateBar(j) {
@@ -507,13 +635,6 @@ function updateBar(j) {
     const inner = segs[i]?.firstElementChild;
     if (inner) inner.style.width = `${(fill * 100).toFixed(1)}%`;
   });
-}
-
-function concat(parts) {
-  const out = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
-  let pos = 0;
-  for (const p of parts) { out.set(p, pos); pos += p.length; }
-  return out;
 }
 
 const strip = (j) => ({
@@ -591,7 +712,7 @@ async function preview(voice, btn) {
   btn.classList.add('busy');
   try {
     const { audio } = await tts.generate(t('voice.sample'), voice, state.speed);
-    player.src = URL.createObjectURL(new Blob([wav(audio)], { type: 'audio/wav' }));
+    player.src = URL.createObjectURL(wav(audio));
     playing = voice;
     await player.play();
     markPlaying();
@@ -659,13 +780,35 @@ document.addEventListener('click', async (ev) => {
         refreshGo();
         break;
       case 'start': await startJob(); break;
-      case 'cancel':
-        if (await ask({ title: t('job.cancelTitle'), message: t('job.cancelText'), confirm: t('job.cancel') })) {
-          state.job.cancel = true;
-        }
+      case 'job-pause':
+        state.job.pauseRequested = true;
+        updateJobView();
+        break;
+      case 'job-resume': {
+        const j = state.job;
+        if (j.paused) j.wake();
+        else if (j.error && !j.running) { state.resume = null; await resumeJob(); }
+        break;
+      }
+      case 'job-delete': {
+        if (!await ask({ title: t('job.deleteTitle', { title: state.job.title }), message: t('job.deleteText'), confirm: t('job.delete'), danger: true })) break;
+        const j = state.job;
+        if (!j) break;
+        if (!j.running) { await discardJob(); break; }
+        j.cancel = true;
+        j.pauseRequested = false;
+        j.wake?.();
+        updateJobView();
+        break;
+      }
+      case 'run-on':
+        state.runOn = el.dataset.value;
+        keep('lectorLite.runOn', state.runOn);
+        $$('[data-action="run-on"]').forEach((b) => b.classList.toggle('on', b === el));
+        if (state.device && state.device !== (state.runOn === 'cpu' ? 'wasm' : 'webgpu')) tts.reset();
+        refreshGo();
         break;
       case 'resume':
-      case 'resume-job':
         state.resume = null;
         await resumeJob();
         break;
@@ -736,3 +879,4 @@ $('#lang-toggle').addEventListener('click', () => { setLang(getLang() === 'de' ?
 setLang(getLang());
 await loadResume();
 render();
+detectHardware().then((hw) => { state.hw = hw; render(); }, () => {});
