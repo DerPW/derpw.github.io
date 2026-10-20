@@ -18,49 +18,106 @@ export async function ensurePermission(handle, mode = 'readwrite') {
   return (await handle.requestPermission({ mode })) === 'granted';
 }
 
-export async function listDirectory(root) {
+/*
+ * Alle Funktionen, die Bücher suchen, nehmen ein ctx-Objekt:
+ *   onPick(name)      – Auswahl getroffen, jetzt wird gesucht
+ *   onWaiting()       – Dialog zu, der Browser zählt noch die Dateien (Firefox/Safari)
+ *   onProgress(p)     – { dirs, files, epubs, path }, höchstens alle 80 ms
+ *   signal            – AbortSignal zum Abbrechen
+ */
+
+const aborted = () => new DOMException('Abgebrochen', 'AbortError');
+
+function reporter(ctx = {}) {
+  const p = { dirs: 0, files: 0, epubs: 0, path: '' };
+  let last = 0;
+  return {
+    p,
+    tick(force = false) {
+      if (ctx.signal?.aborted) throw aborted();
+      const now = performance.now();
+      if (ctx.onProgress && (force || now - last > 80)) { last = now; ctx.onProgress({ ...p }); }
+    },
+  };
+}
+
+const byPath = (a, b) => a.path.localeCompare(b.path, 'de', { numeric: true });
+
+export async function listDirectory(root, ctx = {}) {
   const entries = [];
-  async function walk(dir, prefix) {
-    for await (const [name, handle] of dir.entries()) {
-      if (name.startsWith('.')) continue;
-      if (handle.kind === 'directory') await walk(handle, `${prefix}${name}/`);
-      else if (isEpub(name)) entries.push({ path: prefix + name, name, dir: prefix.slice(0, -1), handle, parent: dir });
-    }
-  }
-  await walk(root, '');
-  return { source: { mode: 'fsa', name: root.name, root, canWrite: true }, entries };
+  const rep = reporter(ctx);
+  const queue = [[root, '']];
+  let active = 0;
+  // Mehrere Ordner gleichzeitig lesen – bei tiefen Bibliotheken (z. B. Calibre: ein Ordner je Buch) viel schneller
+  await new Promise((resolve, reject) => {
+    let failed = false;
+    const scan = async (dir, prefix) => {
+      rep.p.dirs++;
+      rep.p.path = prefix.slice(0, -1);
+      for await (const [name, handle] of dir.entries()) {
+        if (name.startsWith('.')) continue;
+        if (handle.kind === 'directory') queue.push([handle, `${prefix}${name}/`]);
+        else {
+          rep.p.files++;
+          if (isEpub(name)) { rep.p.epubs++; entries.push({ path: prefix + name, name, dir: prefix.slice(0, -1), handle, parent: dir }); }
+        }
+        rep.tick();
+      }
+    };
+    const pump = () => {
+      if (failed) return;
+      if (!queue.length && !active) { resolve(); return; }
+      while (active < 8 && queue.length) {
+        const [dir, prefix] = queue.shift();
+        active++;
+        scan(dir, prefix).then(() => { active--; pump(); }, (err) => { failed = true; reject(err); });
+      }
+    };
+    pump();
+  });
+  rep.tick(true);
+  entries.sort(byPath);
+  return { source: { mode: 'fsa', name: root.name, root, canWrite: true }, entries, scanned: { ...rep.p } };
 }
 
-export async function pickFolder() {
+export async function pickFolder(ctx = {}) {
   const root = await window.showDirectoryPicker({ id: 'kolophon-library', mode: 'readwrite', startIn: 'documents' });
+  ctx.onPick?.(root.name);
   rememberFolder(root).catch(() => {});
-  return listDirectory(root);
+  return listDirectory(root, ctx);
 }
 
-export async function pickFiles() {
+export async function pickFiles(ctx = {}) {
   const handles = await window.showOpenFilePicker({
     id: 'kolophon-files', multiple: true, startIn: 'documents',
     types: [{ description: 'EPUB-Bücher', accept: { 'application/epub+zip': ['.epub'] } }],
   });
+  ctx.onPick?.(handles.length === 1 ? handles[0].name : `${handles.length} Dateien`);
   return {
     source: { mode: 'fsa', name: handles.length === 1 ? handles[0].name : `${handles.length} Dateien`, root: null, canWrite: true },
-    entries: handles.map((h) => ({ path: h.name, name: h.name, dir: '', handle: h, parent: null })),
+    entries: handles.map((h) => ({ path: h.name, name: h.name, dir: '', handle: h, parent: null })).sort(byPath),
   };
 }
 
 /* -------------------------------------------- Rückfallebene: Kopien + Download */
 
-export function listingFromFiles(files, name) {
+export function listingFromFiles(files, name, ctx = {}) {
   const entries = [];
+  const rep = reporter(ctx);
+  const dirs = new Set();
   for (const { file, path } of files) {
     const [dir, fname] = splitPath(path);
+    rep.p.files++;
+    if (!dirs.has(dir)) { dirs.add(dir); rep.p.dirs++; }
     if (!isEpub(fname) || path.split('/').some((s) => s.startsWith('.'))) continue;
+    rep.p.epubs++;
     entries.push({ path, name: fname, dir, file });
   }
-  return { source: { mode: 'copy', name, root: null, canWrite: false }, entries };
+  entries.sort(byPath);
+  return { source: { mode: 'copy', name, root: null, canWrite: false }, entries, scanned: { ...rep.p } };
 }
 
-function inputPicker({ directory }) {
+function inputPicker({ directory }, ctx = {}) {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -69,24 +126,34 @@ function inputPicker({ directory }) {
     else input.accept = '.epub,application/epub+zip';
     input.style.display = 'none';
     document.body.append(input);
+    let settled = false;
+    const finish = () => { settled = true; input.remove(); window.removeEventListener('focus', onFocus); };
+    // Nach dem Schließen des Dialogs zählt der Browser bei großen Ordnern erst alle Dateien,
+    // bevor „change“ kommt. Fenster hat wieder den Fokus, aber noch keine Dateien: Hinweis zeigen.
+    const onFocus = () => setTimeout(() => { if (!settled) ctx.onWaiting?.(); }, 350);
+    window.addEventListener('focus', onFocus);
     input.onchange = () => {
       const files = [...input.files];
-      input.remove();
-      if (!files.length) return reject(new DOMException('Keine Dateien', 'AbortError'));
-      if (directory) {
-        const rootName = files[0].webkitRelativePath.split('/')[0] || 'Auswahl';
-        resolve(listingFromFiles(files.map((file) => ({ file, path: file.webkitRelativePath.split('/').slice(1).join('/') || file.name })), rootName));
-      } else {
-        resolve(listingFromFiles(files.map((file) => ({ file, path: file.name })), files.length === 1 ? files[0].name : `${files.length} Dateien`));
-      }
+      finish();
+      if (!files.length) return reject(aborted());
+      try {
+        if (directory) {
+          const rootName = files[0].webkitRelativePath.split('/')[0] || 'Auswahl';
+          ctx.onPick?.(rootName);
+          resolve(listingFromFiles(files.map((file) => ({ file, path: file.webkitRelativePath.split('/').slice(1).join('/') || file.name })), rootName, ctx));
+        } else {
+          resolve(listingFromFiles(files.map((file) => ({ file, path: file.name })), files.length === 1 ? files[0].name : `${files.length} Dateien`, ctx));
+        }
+      } catch (err) { reject(err); }
     };
-    input.oncancel = () => { input.remove(); reject(new DOMException('Abgebrochen', 'AbortError')); };
+    input.oncancel = () => { finish(); reject(aborted()); };
+    ctx.signal?.addEventListener('abort', () => { if (!settled) { finish(); reject(aborted()); } }, { once: true });
     input.click();
   });
 }
 
-export const pickFolderFallback = () => inputPicker({ directory: true });
-export const pickFilesFallback = () => inputPicker({ directory: false });
+export const pickFolderFallback = (ctx) => inputPicker({ directory: true }, ctx);
+export const pickFilesFallback = (ctx) => inputPicker({ directory: false }, ctx);
 
 /* ------------------------------------------------------------ Drag & Drop */
 
@@ -95,17 +162,19 @@ export function captureDrop(dataTransfer) {
   const items = [...dataTransfer.items].filter((i) => i.kind === 'file');
   if (canAccessFS && items.length && 'getAsFileSystemHandle' in items[0]) {
     const promises = items.map((i) => i.getAsFileSystemHandle());
-    return async () => {
+    return async (ctx = {}) => {
       const handles = (await Promise.all(promises)).filter(Boolean);
       if (handles.length === 1 && handles[0].kind === 'directory') {
         if (!(await ensurePermission(handles[0]))) throw new Error('Kein Schreibzugriff auf den Ordner erteilt');
+        ctx.onPick?.(handles[0].name);
         rememberFolder(handles[0]).catch(() => {});
-        return listDirectory(handles[0]);
+        return listDirectory(handles[0], ctx);
       }
+      ctx.onPick?.(handles.length === 1 ? handles[0].name : `${handles.length} Objekte`);
       const listing = { source: { mode: 'fsa', name: 'Abgelegte Dateien', root: null, canWrite: true }, entries: [] };
       for (const h of handles) {
         if (h.kind === 'directory') {
-          const sub = await listDirectory(h);
+          const sub = await listDirectory(h, ctx);
           for (const e of sub.entries) listing.entries.push({ ...e, path: `${h.name}/${e.path}`, dir: e.dir ? `${h.name}/${e.dir}` : h.name });
         } else if (isEpub(h.name)) {
           listing.entries.push({ path: h.name, name: h.name, dir: '', handle: h, parent: null });
@@ -117,8 +186,9 @@ export function captureDrop(dataTransfer) {
   }
   const entries = items.map((i) => i.webkitGetAsEntry?.()).filter(Boolean);
   const loose = entries.length ? [] : [...dataTransfer.files];
-  return async () => {
+  return async (ctx = {}) => {
     const files = [];
+    const rep = reporter(ctx);
     const readAll = (reader) => new Promise((res, rej) => {
       const out = [];
       const next = () => reader.readEntries((batch) => (batch.length ? (out.push(...batch), next()) : res(out)), rej);
@@ -126,19 +196,31 @@ export function captureDrop(dataTransfer) {
     });
     async function walk(entry, prefix) {
       if (entry.isFile) {
-        const file = await new Promise((res, rej) => entry.file(res, rej));
-        files.push({ file, path: prefix + entry.name });
+        rep.p.files++;
+        // Nur EPUBs öffnen – jede andere Datei einzeln anzufassen kostet bei großen Ordnern viel Zeit
+        if (isEpub(entry.name)) {
+          rep.p.epubs++;
+          files.push({ file: await new Promise((res, rej) => entry.file(res, rej)), path: prefix + entry.name });
+        }
+        rep.tick();
       } else if (entry.isDirectory) {
+        rep.p.dirs++;
+        rep.p.path = prefix + entry.name;
         for (const child of await readAll(entry.createReader())) await walk(child, `${prefix}${entry.name}/`);
       }
     }
-    if (loose.length) return listingFromFiles(loose.map((file) => ({ file, path: file.name })), 'Abgelegte Dateien');
+    if (loose.length) return listingFromFiles(loose.map((file) => ({ file, path: file.name })), 'Abgelegte Dateien', ctx);
     if (entries.length === 1 && entries[0].isDirectory) {
+      ctx.onPick?.(entries[0].name);
       for (const child of await readAll(entries[0].createReader())) await walk(child, '');
-      return listingFromFiles(files, entries[0].name);
+      const listing = listingFromFiles(files, entries[0].name);
+      listing.scanned = { ...rep.p };
+      return listing;
     }
+    ctx.onPick?.(`${entries.length} Objekte`);
     for (const e of entries) await walk(e, '');
     const listing = listingFromFiles(files, 'Abgelegte Dateien');
+    listing.scanned = { ...rep.p };
     if (listing.entries.length === 1) listing.source.name = listing.entries[0].name;
     return listing;
   };
@@ -238,10 +320,11 @@ export async function forgetFolder(id) {
   await tx('readwrite', (s) => s.delete(id));
 }
 
-export async function openRecent(entry) {
+export async function openRecent(entry, ctx = {}) {
   if (!(await ensurePermission(entry.handle))) throw new Error('Kein Zugriff auf den Ordner erteilt');
+  ctx.onPick?.(entry.name);
   rememberFolder(entry.handle).catch(() => {});
-  return listDirectory(entry.handle);
+  return listDirectory(entry.handle, ctx);
 }
 
 /* ------------------------------------------------------------ Download */

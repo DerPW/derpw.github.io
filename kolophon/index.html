@@ -9,7 +9,7 @@
   <meta name="theme-color" content="#1e1e1e" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/app.css?v=bb37527">
+  <link rel="stylesheet" href="css/app.css?v=46c7374">
   <script>
     // Erscheinungsbild vor dem ersten Rendern setzen, damit nichts aufblitzt.
     try {
@@ -20,8 +20,8 @@
       if (s.inspector === false) document.documentElement.dataset.inspector = 'off';
     } catch {}
   </script>
-  <script type="importmap">{"imports":{"./js/app.js":"./js/app.js?v=bb37527","./js/covers.js":"./js/covers.js?v=bb37527","./js/demo.js":"./js/demo.js?v=bb37527","./js/fs.js":"./js/fs.js?v=bb37527","./js/inspector.js":"./js/inspector.js?v=bb37527","./js/langs.js":"./js/langs.js?v=bb37527","./js/library.js":"./js/library.js?v=bb37527","./js/state.js":"./js/state.js?v=bb37527","./js/ui.js":"./js/ui.js?v=bb37527","./js/lookup/match.js":"./js/lookup/match.js?v=bb37527","./js/lookup/sheet.js":"./js/lookup/sheet.js?v=bb37527","./js/lookup/sources.js":"./js/lookup/sources.js?v=bb37527","./js/epub/index.js":"./js/epub/index.js?v=bb37527","./js/epub/opf.js":"./js/epub/opf.js?v=bb37527","./js/epub/text.js":"./js/epub/text.js?v=bb37527","./js/epub/xml.js":"./js/epub/xml.js?v=bb37527","./js/epub/zip.js":"./js/epub/zip.js?v=bb37527"}}</script>
-  <script type="module" src="js/app.js?v=bb37527"></script>
+  <script type="importmap">{"imports":{"./js/app.js":"./js/app.js?v=46c7374","./js/covers.js":"./js/covers.js?v=46c7374","./js/demo.js":"./js/demo.js?v=46c7374","./js/fs.js":"./js/fs.js?v=46c7374","./js/inspector.js":"./js/inspector.js?v=46c7374","./js/langs.js":"./js/langs.js?v=46c7374","./js/library.js":"./js/library.js?v=46c7374","./js/loader.js":"./js/loader.js?v=46c7374","./js/state.js":"./js/state.js?v=46c7374","./js/ui.js":"./js/ui.js?v=46c7374","./js/lookup/match.js":"./js/lookup/match.js?v=46c7374","./js/lookup/sheet.js":"./js/lookup/sheet.js?v=46c7374","./js/lookup/sources.js":"./js/lookup/sources.js?v=46c7374","./js/epub/index.js":"./js/epub/index.js?v=46c7374","./js/epub/opf.js":"./js/epub/opf.js?v=46c7374","./js/epub/text.js":"./js/epub/text.js?v=46c7374","./js/epub/xml.js":"./js/epub/xml.js?v=46c7374","./js/epub/zip.js":"./js/epub/zip.js?v=46c7374"}}</script>
+  <script type="module" src="js/app.js?v=46c7374"></script>
 </head>
 <body>
   <div class="window" id="window">
@@ -81,7 +81,7 @@
           <span data-icon="photo"></span>
         </label>
       </footer>
-      <div class="progress" id="progress" hidden><div class="progress-bar" id="progress-bar"></div></div>
+      <div class="loader" id="loader" hidden aria-live="polite"></div>
     </main>
 
     <aside class="inspector panel" id="inspector" aria-label="Informationen"></aside>

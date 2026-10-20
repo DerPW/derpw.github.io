@@ -16,12 +16,13 @@ import { prepareCover, clearThumbCache, thumbnail, pruneThumbCache } from './cov
 import { openLookup, fileNameFor } from './lookup/sheet.js';
 import { SOURCES, SOURCE_ORDER } from './lookup/sources.js';
 import { demoListing } from './demo.js';
+import { startTask, fmt } from './loader.js';
 
 const root = document.documentElement;
 const els = {
   title: $('#title'), subtitle: $('#subtitle'), status: $('#status-text'), welcome: $('#welcome'),
   save: $('#btn-save'), saveLabel: $('#save-label'), saveIcon: $('#save-icon'), saveCount: $('#save-count'),
-  lookup: $('#btn-lookup'), search: $('#search-input'), scroller: $('#scroller'), progress: $('#progress'), progressBar: $('#progress-bar'),
+  lookup: $('#btn-lookup'), search: $('#search-input'), scroller: $('#scroller'),
   sizeInput: $('#size-input'), foot: $('#sidebar-foot'),
 };
 
@@ -119,19 +120,51 @@ async function confirmDiscard() {
   });
 }
 
-async function openListing(promise) {
+let opening = null;
+
+/**
+ * Öffnet eine Bibliothek. `start(ctx)` wählt aus und sucht die Bücher (siehe fs.js);
+ * währenddessen zeigt die Ladeanzeige, was passiert, und lässt sich abbrechen.
+ * Gefragt wird vorher – sonst sucht Kolophon erst lange und verwirft dann doch.
+ */
+async function openListing(start, { confirm = true } = {}) {
+  if (confirm && !(await confirmDiscard())) return;
+  opening?.abort();
+  const controller = new AbortController();
+  opening = controller;
+  // Unsichtbar, solange der Auswahldialog offen ist – sichtbar, sobald gesucht wird
+  const task = startTask({ mode: 'center', title: 'Ordner wird geöffnet …', hidden: true, onCancel: () => controller.abort() });
+  const ctx = {
+    signal: controller.signal,
+    onPick: (name) => task.update({ title: `„${name}“ wird durchsucht …`, detail: 'Suche nach EPUB-Dateien', sub: '', show: true }),
+    onWaiting: () => task.update({ title: 'Der Browser liest den Ordner …', detail: 'Bei großen Ordnern kann das einen Moment dauern.', show: true }),
+    onProgress: (p) => task.update({
+      detail: `${fmt(p.epubs)} ${p.epubs === 1 ? 'EPUB' : 'EPUBs'} gefunden`,
+      sub: `${fmt(p.files)} Dateien in ${fmt(p.dirs)} ${p.dirs === 1 ? 'Ordner' : 'Ordnern'} geprüft${p.path ? ` · ${p.path}` : ''}`,
+    }),
+  };
   let listing;
   try {
-    listing = await promise;
+    // Abbrechen wirkt sofort – auch wenn ein Schritt (z. B. der Browser beim Zählen) selbst nicht unterbrechbar ist
+    const cancelled = new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(new DOMException('Abgebrochen', 'AbortError')), { once: true }));
+    listing = await Promise.race([typeof start === 'function' ? start(ctx) : start, cancelled]);
   } catch (err) {
-    if (err?.name !== 'AbortError') toast(err.message || String(err), { kind: 'error' });
+    task.done();
+    if (err?.name === 'AbortError') { if (controller.signal.aborted) toast('Öffnen abgebrochen'); return; }
+    toast(err.message || String(err), { kind: 'error', timeout: 7000 });
     return;
+  } finally {
+    if (opening === controller) opening = null;
   }
+  task.done();
+  if (controller.signal.aborted) return;
   if (!listing.entries.length) {
-    toast('Keine EPUB-Dateien gefunden.', { kind: 'error' });
+    const sc = listing.scanned;
+    toast(sc
+      ? `In „${listing.source.name}“ gibt es keine EPUB-Dateien (${fmt(sc.files)} Dateien in ${fmt(sc.dirs)} ${sc.dirs === 1 ? 'Ordner' : 'Ordnern'} geprüft).`
+      : 'Keine EPUB-Dateien gefunden.', { kind: 'error', timeout: 7000 });
     return;
   }
-  if (!(await confirmDiscard())) return;
   setBooks(listing.source, listing.entries);
   await readAll();
 }
@@ -157,7 +190,7 @@ async function readOne(book) {
 async function readAll() {
   const books = state.books;
   state.loading = { done: 0, total: books.length };
-  els.progress.hidden = false;
+  const task = startTask({ mode: 'pill', title: 'Bücher werden gelesen', detail: `0 von ${fmt(books.length)}`, progress: 0, delay: 300 });
   library.render();
   updateChrome();
   let i = 0;
@@ -172,16 +205,15 @@ async function readAll() {
       const now = performance.now();
       if (now - lastPaint > 120) {
         lastPaint = now;
-        els.progressBar.style.width = `${(state.loading.done / state.loading.total) * 100}%`;
+        task.update({ detail: `${fmt(state.loading.done)} von ${fmt(state.loading.total)}`, progress: state.loading.done / state.loading.total });
         updateChrome();
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(8, books.length) }, worker));
+  task.done();
   if (state.books !== books) return;
   state.loading = null;
-  els.progressBar.style.width = '100%';
-  setTimeout(() => { els.progress.hidden = true; els.progressBar.style.width = '0'; }, 400);
   library.render();
   const errors = books.filter((b) => b.status === 'error').length;
   if (errors) toast(`${plural(errors, 'Datei ließ', 'Dateien ließen')} sich nicht lesen.`, { kind: 'error', timeout: 6000, action: { label: 'Zeigen', run: () => { state.filter = { kind: 'errors', value: null }; emit('filter'); } } });
@@ -207,13 +239,20 @@ async function refresh() {
     else toast('Firefox und Safari arbeiten mit Kopien. Zum Aktualisieren den Ordner erneut öffnen.', { action: { label: 'Öffnen …', run: openFolder } });
     return;
   }
+  if (refreshing) return;
+  refreshing = true;
   const btn = $('#btn-refresh');
   btn.classList.add('spin');
+  const controller = new AbortController();
+  const task = startTask({ mode: 'pill', title: 'Ordner wird neu eingelesen', delay: 150, onCancel: () => controller.abort() });
   try {
     let entries;
     if (src.root) {
       if (!(await ensurePermission(src.root, 'readwrite'))) throw new Error('Kein Zugriff auf den Ordner erteilt');
-      entries = (await listDirectory(src.root)).entries;
+      entries = (await listDirectory(src.root, {
+        signal: controller.signal,
+        onProgress: (p) => task.update({ detail: `${fmt(p.files)} Dateien geprüft · ${fmt(p.epubs)} EPUBs` }),
+      })).entries;
     } else {
       entries = [];
       for (const b of state.books) {
@@ -239,7 +278,9 @@ async function refresh() {
     const reread = [...changed, ...added];
     for (const b of reread) { b.status = 'pending'; if (b.thumb?.url) URL.revokeObjectURL(b.thumb.url); b.thumb = null; }
     library.render();
+    task.update({ title: 'Bücher werden gelesen', detail: `0 von ${fmt(reread.length)}`, progress: 0, onCancel: null });
     let i = 0;
+    let done = 0;
     await Promise.all(Array.from({ length: Math.min(8, reread.length) }, async () => {
       while (i < reread.length) {
         const b = reread[i++];
@@ -252,6 +293,8 @@ async function refresh() {
           conflicts++;
         }
         library.updateBook(b.id);
+        done++;
+        task.update({ detail: `${fmt(done)} von ${fmt(reread.length)}`, progress: done / reread.length });
       }
     }));
     library.render();
@@ -266,15 +309,19 @@ async function refresh() {
     if (lost) toast(`${plural(lost, 'Buch mit ungesicherten Änderungen gibt', 'Bücher mit ungesicherten Änderungen gibt')} es nicht mehr im Ordner.`, { kind: 'error', timeout: 7000 });
     if (conflicts) toast(`${plural(conflicts, 'Buch wurde', 'Bücher wurden')} außerhalb geändert – deine ungesicherten Änderungen bleiben erhalten.`, { timeout: 7000 });
   } catch (err) {
-    toast(`Neu einlesen fehlgeschlagen: ${err.message}`, { kind: 'error' });
+    if (err?.name === 'AbortError') toast('Neu einlesen abgebrochen');
+    else toast(`Neu einlesen fehlgeschlagen: ${err.message}`, { kind: 'error' });
   } finally {
+    task.done();
+    refreshing = false;
     btn.classList.remove('spin');
   }
 }
+let refreshing = false;
 
-const openFolder = () => openListing(canAccessFS ? pickFolder() : pickFolderFallback());
-const openFiles = () => openListing(canPickFiles ? pickFiles() : pickFilesFallback());
-const openDemo = () => openListing(demoListing());
+const openFolder = () => openListing((ctx) => (canAccessFS ? pickFolder(ctx) : pickFolderFallback(ctx)));
+const openFiles = () => openListing((ctx) => (canPickFiles ? pickFiles(ctx) : pickFilesFallback(ctx)));
+const openDemo = () => openListing(() => demoListing());
 
 async function openMenu(anchor) {
   const recent = await recentFolders();
@@ -285,7 +332,7 @@ async function openMenu(anchor) {
     { label: 'Dateien öffnen …', icon: 'doc', shortcut: '⇧⌘O', run: openFiles },
     recent.length ? '-' : null,
     recent.length ? { header: 'Zuletzt geöffnet' } : null,
-    ...recent.map((r) => ({ label: r.name, icon: 'folder', detail: relTime(r.time), run: () => openListing(openRecent(r)) })),
+    ...recent.map((r) => ({ label: r.name, icon: 'folder', detail: relTime(r.time), run: () => openListing((ctx) => openRecent(r, ctx)) })),
     '-',
     { label: 'Beispielbibliothek', icon: 'books', run: openDemo },
   ], { minWidth: 240 });
@@ -331,13 +378,13 @@ async function save(list = dirtyBooks()) {
   const copy = state.source?.mode === 'copy';
   const errors = [];
   const outputs = [];
-  els.progress.hidden = false;
+  const task = startTask({ mode: 'pill', title: copy ? 'Kopien werden erstellt' : 'Wird gesichert', detail: `0 von ${fmt(books.length)}`, progress: 0, delay: 250 });
   let done = 0;
   let next = 0;
   if (!copy) {
     // Schreibrechte vorab und nacheinander erfragen, solange der Klick noch als Nutzeraktion gilt
     for (const b of books) {
-      if (b.handle && !(await ensurePermission(b.handle))) { toast('Kein Schreibzugriff erteilt', { kind: 'error' }); state.saving = false; updateChrome(); return; }
+      if (b.handle && !(await ensurePermission(b.handle))) { task.done(); toast('Kein Schreibzugriff erteilt', { kind: 'error' }); state.saving = false; updateChrome(); return; }
     }
   }
   const one = async (book) => {
@@ -355,7 +402,7 @@ async function save(list = dirtyBooks()) {
       errors.push({ book, err });
     }
     done++;
-    els.progressBar.style.width = `${(done / books.length) * 100}%`;
+    task.update({ detail: `${fmt(done)} von ${fmt(books.length)}`, progress: done / books.length });
     library.updateBook(book.id);
   };
   try {
@@ -371,7 +418,7 @@ async function save(list = dirtyBooks()) {
     }
   } finally {
     state.saving = false;
-    setTimeout(() => { els.progress.hidden = true; els.progressBar.style.width = '0'; }, 400);
+    task.done();
   }
   const ok = books.length - errors.length;
   if (errors.length) {
@@ -601,7 +648,7 @@ async function renderWelcome() {
       h('button.btn.primary.large', { onclick: openFolder }, h('span', { html: icon('folder') }), 'Ordner öffnen …'),
       h('button.btn.large', { onclick: openFiles }, h('span', { html: icon('doc') }), 'Dateien öffnen …'),
       h('button.btn.large', { onclick: openDemo }, h('span', { html: icon('books') }), 'Beispiel ansehen')),
-    recent.length ? h('div.recent', {}, h('div.recent-title', {}, 'Zuletzt geöffnet'), h('div.recent-list', {}, recent.map((r) => h('button.recent-item', { onclick: () => openListing(openRecent(r)) },
+    recent.length ? h('div.recent', {}, h('div.recent-title', {}, 'Zuletzt geöffnet'), h('div.recent-list', {}, recent.map((r) => h('button.recent-item', { onclick: () => openListing((ctx) => openRecent(r, ctx)) },
       h('span', { html: icon('folder') }), h('span.recent-name', {}, r.name), h('span.recent-time', {}, relTime(r.time)),
       h('span.icon-btn.forget', { title: 'Aus der Liste entfernen', html: icon('x'), onclick: async (e) => { e.stopPropagation(); await forgetFolder(r.id); renderWelcome(); } }))))) : null,
     note,
@@ -655,6 +702,7 @@ document.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (e.key === 'Escape') {
     if (document.querySelector('.menu')) { closeMenu(); return; }
+    if (opening && !sheetOpen()) { opening.abort(); return; }
     if (closeTopSheet()) { e.preventDefault(); return; }
     if (narrow.matches && (root.dataset.inspectorOverlay === 'on' || root.dataset.sidebarOverlay === 'on')) { root.dataset.inspectorOverlay = 'off'; root.dataset.sidebarOverlay = 'off'; return; }
   }
@@ -726,7 +774,7 @@ window.addEventListener('drop', (e) => {
     return;
   }
   const run = captureDrop(e.dataTransfer);
-  openListing(run());
+  openListing(run);
 });
 
 window.addEventListener('beforeunload', (e) => {
