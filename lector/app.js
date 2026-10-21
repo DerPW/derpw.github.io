@@ -4,13 +4,13 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js?v=5fc59da';
-import { planChunks } from './textprep.js?v=5fc59da';
-import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=5fc59da';
-import * as store from './store.js?v=5fc59da';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=5fc59da';
+import { parseFile, parseText } from './book.js?v=d1b5dd3';
+import { planChunks } from './textprep.js?v=d1b5dd3';
+import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=d1b5dd3';
+import * as store from './store.js?v=d1b5dd3';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=d1b5dd3';
 
-const VERSION = '0.12.1'; // keep in step with src/lector/__init__.py
+const VERSION = '0.13.0'; // keep in step with src/lector/__init__.py
 // Characters per passage. Kokoro cuts off input beyond about 510 phoneme tokens, but memory is
 // the real limit: on WebGPU a 300-character passage briefly needs 3-4 GB, 180 characters stay
 // under 1 GB (measured on an M3), for about 15 % less speed.
@@ -19,7 +19,9 @@ const CHARS_PER_SECOND = 15; // spoken characters per second of audio, for estim
 const CHAPTER_LEAD = 0.5;
 const CHAPTER_TAIL = 1.5;
 const MODEL_MB = { webgpu: 330, wasm: 90 };
-const HAS_GPU = 'gpu' in navigator;
+const HAS_GPU = 'gpu' in navigator; // a first guess; detectHardware asks for a real adapter
+const IS_FIREFOX = /Firefox\//.test(navigator.userAgent);
+const gpuOffered = () => (state.hw ? state.hw.webgpu : HAS_GPU);
 
 function stored(key, fallback) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
@@ -57,6 +59,7 @@ const state = {
   format: 'm4b',
   bitrate: '64k',
   device: null, // what the model actually runs on, once loaded
+  fallback: '', // why it is not on the graphics chip although that was chosen
   // 'gpu': WebGPU, fast but the model takes well over a gigabyte; 'cpu': WebAssembly, slower
   // and much lighter. Without WebGPU there is no choice.
   runOn: HAS_GPU ? stored('lectorLite.runOn', 'gpu') : 'cpu',
@@ -108,7 +111,7 @@ const tts = (() => {
   const listeners = new Set();
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js?v=5fc59da', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=d1b5dd3', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress' || data.type === 'ready') listeners.forEach((fn) => fn(data));
       if (data.type === 'ready') waiting.get('load')?.resolve(data);
@@ -124,8 +127,12 @@ const tts = (() => {
       if (!worker) start();
       ready ??= new Promise((resolve, reject) => {
         waiting.set('load', { resolve, reject });
-        worker.postMessage({ type: 'load', prefer: state.runOn === 'cpu' ? 'wasm' : undefined });
-      }).then((info) => { state.device = info.device; return info; }, (err) => { ready = null; throw err; });
+        worker.postMessage({ type: 'load', prefer: state.runOn === 'cpu' || !gpuOffered() ? 'wasm' : undefined });
+      }).then((info) => {
+        state.device = info.device;
+        state.fallback = info.device === 'wasm' && state.runOn === 'gpu' ? info.fallback || '' : '';
+        return info;
+      }, (err) => { ready = null; throw err; });
       return ready;
     },
     // Drop the loaded model (and the memory it holds); the next use loads it as now set.
@@ -136,6 +143,7 @@ const tts = (() => {
       waiting.forEach((w) => w.reject(new Error('reset')));
       waiting.clear();
       state.device = null;
+      state.fallback = '';
     },
     async generate(text, voice, speed) {
       await this.load();
@@ -158,8 +166,10 @@ function gpuName(renderer) {
   // "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)"
   const angle = /^ANGLE \((.*)\)$/.exec(renderer);
   const name = angle ? angle[1].split(', ')[1] || '' : renderer;
-  return name.replace(/^ANGLE [^:]*: /, '').replace(/ \(0x[0-9a-f]+\)/i, '')
+  const clean = name.replace(/^ANGLE [^:]*: /, '').replace(/ \(0x[0-9a-f]+\)/i, '')
     .replace(/ (Direct3D|vs_|OpenGL|Vulkan).*$/, '').replace(/, or similar$/, '').trim();
+  // Firefox reports every Apple chip as "Apple M1" to make machines harder to tell apart.
+  return IS_FIREFOX && /^Apple M\d/.test(clean) ? 'Apple Silicon' : clean;
 }
 
 async function detectHardware() {
@@ -258,8 +268,7 @@ function renderBook() {
       <div class="settings-grid">
         <div class="field"><span>Format</span><div class="segmented">${['m4b', 'mp3'].map((f) => `<button data-action="format" data-value="${f}" class="${f === state.format ? 'on' : ''}">${esc(t(`format.${f}`))} <small>${esc(t(`format.${f}.sub`))}</small></button>`).join('')}</div></div>
         <div class="field"><span>${esc(t('quality'))}</span><div class="segmented">${['48k', '64k', '96k'].map((q) => `<button data-action="bitrate" data-value="${q}" class="${q === state.bitrate ? 'on' : ''}">${esc(t(`quality.${q}`))} <small>${q}</small></button>`).join('')}</div></div>
-        ${HAS_GPU ? `<div class="field"><span>${esc(t('runOn'))}</span><div class="segmented">${['gpu', 'cpu'].map((r) => `<button data-action="run-on" data-value="${r}" class="${r === state.runOn ? 'on' : ''}">${esc(t(`runOn.${r}`))} <small>${esc(t(`runOn.${r}.sub`))}</small></button>`).join('')}</div>
-          <span class="faint small">${esc(t('runOn.note'))}</span></div>` : ''}
+        ${renderRunOn()}
       </div>
     </section>
     ${renderGo()}
@@ -298,6 +307,30 @@ function renderVoice(v) {
     <span class="vtext"><span class="vname">${esc(v.name)}</span><span class="vsub">${esc(sub)}</span></span>
     <button class="icon-btn play" data-action="preview" data-voice="${v.id}" aria-label="${esc(t('voice.play'))}">${icon('play')}</button>
   </div>`;
+}
+
+function renderRunOn() {
+  if (!gpuOffered()) {
+    return `<div class="field"><span>${esc(t('runOn'))}</span><span class="faint small">${esc(t('runOn.noGpu'))}</span></div>`;
+  }
+  const note = [t('runOn.note'), IS_FIREFOX ? t('runOn.firefox') : ''].filter(Boolean).join(' ');
+  return `<div class="field"><span>${esc(t('runOn'))}</span><div class="segmented">${['gpu', 'cpu'].map((r) => `<button data-action="run-on" data-value="${r}" class="${r === state.runOn ? 'on' : ''}">${esc(t(`runOn.${r}`))} <small>${esc(t(`runOn.${r}.sub`))}</small></button>`).join('')}</div>
+    <span class="faint small">${esc(note)}</span></div>`;
+}
+
+// What the model runs on and how fast it reads, measured while it reads.
+function deviceText(j) {
+  if (!state.device) return '';
+  const speed = j.sessionSecs > 5 ? j.sessionAudio / j.sessionSecs : null;
+  return [t(`model.device.${state.device}`),
+    speed ? t('speed.realtime', { x: speed.toLocaleString(getLang(), { maximumFractionDigits: 1 }) }) : '']
+    .filter(Boolean).join(' · ');
+}
+
+function fallbackText() {
+  if (!state.fallback) return '';
+  const why = ['no-adapter', 'no-webgpu'].includes(state.fallback) ? t(`runOn.why.${state.fallback}`) : state.fallback;
+  return t('runOn.fallback', { why });
 }
 
 function selectedChars() {
@@ -408,12 +441,13 @@ function renderJobView() {
         <div class="job-detail faint small">${esc(t('chapter.of', { c: Math.min(j.current + 1, j.chapters.length), n: j.chapters.length }))}</div>
         ${['running', 'pausing'].includes(status) ? `<div class="notice info">${esc(t('keep.open'))}</div>` : ''}` : ''}
       ${j.error ? `<div class="job-error">${esc(t('job.failed', { msg: j.error }))}</div>` : ''}
+      ${j.step !== 'done' && state.fallback ? `<div class="notice">${esc(fallbackText())}</div>` : ''}
       <div class="row">
         ${j.step === 'done'
     ? `<div class="done-actions"><a class="btn primary" href="${j.resultUrl}" download="${esc(j.fileName)}">${icon('download')} ${esc(t('job.download'))}</a>
           ${navigator.canShare?.({ files: [new File([], 'x.m4b')] }) ? `<button class="btn" data-action="share">${icon('share')} ${esc(t('job.share'))}</button>` : ''}</div>
           <button class="btn ghost" data-action="new">${esc(t('job.new'))}</button>`
-    : `<span class="faint small">${esc(state.device ? t(`model.device.${state.device}`) : '')}</span>
+    : `<span class="faint small" id="job-device">${esc(deviceText(j))}</span>
           <div class="job-actions">${jobActions(j, status)}</div>`}
       </div>
     </div>
@@ -476,6 +510,8 @@ setInterval(() => {
     const j = state.job;
     const summary = $('#job-summary');
     if (summary) summary.textContent = summaryText(j);
+    const device = $('#job-device');
+    if (device) device.textContent = deviceText(j);
     const at = STEPS.indexOf(j.step);
     STEPS.forEach((step, i) => {
       const el = $(`[data-step="${step}"]`);
@@ -525,7 +561,8 @@ function runtime(saved, doneMap) {
   return {
     ...saved, chapters, totalChars, doneChars, current: chapters.findIndex((c) => !c.done),
     step: 'loading', stepSeconds: { loading: 0, synth: 0, export: 0 }, stepStarted: Date.now(),
-    runSeconds: 0, runStarted: Date.now(), sessionChars: 0, sessionSecs: 0, download: null,
+    runSeconds: 0, runStarted: Date.now(), sessionChars: 0, sessionSecs: 0, sessionAudio: 0,
+    download: null,
     coverUrl: saved.cover ? URL.createObjectURL(saved.cover) : '', cancel: false, error: '',
   };
 }
@@ -566,9 +603,10 @@ async function run(j, doneMap) {
         await pausePoint(j);
         if (j.cancel) throw new Error('cancelled');
         const t0 = performance.now();
-        const { audio } = await tts.generate(chunk.text, j.voice, j.speed);
+        const { audio, rate } = await tts.generate(chunk.text, j.voice, j.speed);
         j.sessionSecs += (performance.now() - t0) / 1000;
         j.sessionChars += chunk.text.length;
+        j.sessionAudio += audio.length / rate;
         track.add(audio);
         track.pause(chunk.pause);
         read += chunk.text.length;

@@ -2,7 +2,7 @@
 //
 // Messages in:  {type: 'load', prefer?: 'wasm'} | {type: 'generate', id, text, voice, speed}
 // Messages out: {type: 'progress', file, loaded, total} while the model downloads,
-//               {type: 'ready', device} | {type: 'audio', id, audio (Int16Array), rate}
+//               {type: 'ready', device, fallback?} | {type: 'audio', id, audio (Int16Array), rate}
 //               | {type: 'error', id?, message}
 //
 // WebGPU is used where the browser offers it (fp32 weights, recommended for WebGPU),
@@ -16,11 +16,15 @@ const KEEP_FREE = 1;
 const BIG = 1 << 20;
 let KokoroTTS = null;
 let tts = null;
+// Why WebGPU was not used although it was wanted: 'no-adapter' (the browser offers WebGPU but
+// hands out no graphics adapter, as Firefox does on some machines) or the loader's error.
+let fallback = '';
 let device = 'wasm';
 
 async function hasWebGPU() {
+  if (!self.navigator?.gpu) return false;
   try {
-    return !!(self.navigator?.gpu && await self.navigator.gpu.requestAdapter());
+    return !!(await self.navigator.gpu.requestAdapter());
   } catch {
     return false;
   }
@@ -65,7 +69,11 @@ async function load(prefer) {
   if (tts) return;
   ({ KokoroTTS } = await importKokoro());
   const tries = [];
-  if (prefer !== 'wasm' && await hasWebGPU()) tries.push(['webgpu', 'fp32']);
+  fallback = '';
+  if (prefer !== 'wasm') {
+    if (await hasWebGPU()) tries.push(['webgpu', 'fp32']);
+    else fallback = self.navigator?.gpu ? 'no-adapter' : 'no-webgpu';
+  }
   tries.push(['wasm', 'q8']);
   let last;
   for (const [dev, dtype] of tries) {
@@ -75,6 +83,7 @@ async function load(prefer) {
       return;
     } catch (err) {
       last = err;
+      if (dev === 'webgpu') fallback = String(err?.message || err).slice(0, 200);
     }
   }
   throw last;
@@ -84,7 +93,7 @@ self.onmessage = async ({ data }) => {
   try {
     if (data.type === 'load') {
       await load(data.prefer);
-      self.postMessage({ type: 'ready', device });
+      self.postMessage({ type: 'ready', device, fallback });
     } else if (data.type === 'generate') {
       await load();
       const out = await tts.generate(data.text, { voice: data.voice, speed: data.speed || 1 });
