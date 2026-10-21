@@ -370,8 +370,8 @@ async function afterWrite(book, file) {
   if (newThumb) book.thumb = newThumb;
 }
 
-async function save(list = dirtyBooks()) {
-  const books = list.filter((b) => b.meta);
+async function save(list) {
+  const books = (Array.isArray(list) ? list : dirtyBooks()).filter((b) => b.meta);
   if (!books.length || state.saving) return;
   state.saving = true;
   updateChrome();
@@ -658,10 +658,10 @@ async function renderWelcome() {
 /* ------------------------------------------------------------- Ereignisse */
 
 $('#btn-sidebar').addEventListener('click', () => togglePanel('sidebar'));
-$('#btn-refresh').addEventListener('click', refresh);
+$('#btn-refresh').addEventListener('click', () => refresh());
 $('#btn-inspector').addEventListener('click', () => togglePanel('inspector'));
-els.save.addEventListener('click', save);
-els.lookup.addEventListener('click', lookup);
+els.save.addEventListener('click', () => save());
+els.lookup.addEventListener('click', () => lookup());
 $('#btn-sort').addEventListener('click', (e) => menu(e.currentTarget, library.sortMenuItems(() => library.render()), { align: 'end' }));
 for (const b of document.querySelectorAll('#view-switch [data-view]')) {
   b.addEventListener('click', () => { setSetting('view', b.dataset.view); library.render(); updateChrome(); });
