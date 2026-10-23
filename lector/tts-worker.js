@@ -39,10 +39,15 @@ function toInt16(samples) {
   return out;
 }
 
+// The loader reports every network chunk: thousands of messages for the model, enough to choke
+// the page (clicks and dialogs answered seconds late). A few a second is plenty to show.
+let lastProgress = 0;
 function progress(info) {
-  if (info?.status === 'progress' && info.total) {
-    self.postMessage({ type: 'progress', file: info.file, loaded: info.loaded, total: info.total });
-  }
+  if (info?.status !== 'progress' || !info.total) return;
+  const now = performance.now();
+  if (now - lastProgress < 250 && info.loaded < info.total) return;
+  lastProgress = now;
+  self.postMessage({ type: 'progress', file: info.file, loaded: info.loaded, total: info.total });
 }
 
 // ONNX Runtime keeps freed GPU buffers for reuse, by size class: up to six of 160 MB, six of

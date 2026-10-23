@@ -4,13 +4,13 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js?v=54585c9';
-import { planChunks } from './textprep.js?v=54585c9';
-import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=54585c9';
-import * as store from './store.js?v=54585c9';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=54585c9';
+import { parseFile, parseText } from './book.js?v=6f36327';
+import { planChunks } from './textprep.js?v=6f36327';
+import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=6f36327';
+import * as store from './store.js?v=6f36327';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=6f36327';
 
-const VERSION = '0.13.1'; // keep in step with src/lector/__init__.py
+const VERSION = '0.13.2'; // keep in step with src/lector/__init__.py
 // Characters per passage. Kokoro cuts off input beyond about 510 phoneme tokens, but memory is
 // the real limit: on WebGPU a 300-character passage briefly needs 3-4 GB, 180 characters stay
 // under 1 GB (measured on an M3), for about 15 % less speed.
@@ -109,11 +109,14 @@ const tts = (() => {
   let seq = 0;
   const waiting = new Map();
   const listeners = new Set();
+  const files = new Map(); // file -> {loaded, total} while the model downloads
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js?v=54585c9', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=6f36327', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
-      if (data.type === 'progress' || data.type === 'ready') listeners.forEach((fn) => fn(data));
+      if (data.type === 'progress') files.set(data.file, { loaded: data.loaded, total: data.total });
+      if (data.type === 'ready' || data.type === 'error') files.clear();
+      if (['progress', 'ready', 'error'].includes(data.type)) listeners.forEach((fn) => fn(data));
       if (data.type === 'ready') waiting.get('load')?.resolve(data);
       if (data.type === 'audio') waiting.get(data.id)?.resolve(data);
       if (data.type === 'error') (waiting.get(data.id ?? 'load') || waiting.get('load'))?.reject(new Error(data.message));
@@ -123,6 +126,13 @@ const tts = (() => {
 
   return {
     onProgress(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    // How far the model download is, all files together; null when nothing big is loading.
+    download() {
+      let loaded = 0;
+      let total = 0;
+      files.forEach((f) => { loaded += f.loaded; total += f.total; });
+      return total > 5e6 ? { loaded, total } : null;
+    },
     load() {
       if (!worker) start();
       ready ??= new Promise((resolve, reject) => {
@@ -140,6 +150,8 @@ const tts = (() => {
       worker?.terminate();
       worker = null;
       ready = null;
+      files.clear();
+      listeners.forEach((fn) => fn({ type: 'reset' }));
       waiting.forEach((w) => w.reject(new Error('reset')));
       waiting.clear();
       state.device = null;
@@ -199,6 +211,33 @@ function hardwareText(hw) {
     hw.webgpu ? 'WebGPU' : 'WebAssembly',
   ].filter(Boolean).join(' · ');
 }
+
+// --- the model download ----------------------------------------------------------------------
+
+// "120 of 326 MB" while the model downloads, or '' when nothing is loading.
+function downloadText(key) {
+  const d = tts.download();
+  if (!d) return '';
+  const mb = (n) => Math.round(n / 1e6).toLocaleString(getLang());
+  return t(key, { done: mb(d.loaded), total: mb(d.total) });
+}
+
+// The first preview downloads the whole model; without this banner nothing would seem to happen.
+// The job view shows the same in its "Load model" step instead.
+function updateModelBanner() {
+  const d = tts.download();
+  let el = $('#model-load');
+  if (!d || (state.job && state.job.step === 'loading')) { el?.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'model-load';
+    el.className = 'toast loading';
+    $('#toasts').append(el);
+  }
+  el.innerHTML = `<strong>${esc(t('model.loading'))}</strong><span>${esc(downloadText('model.loadingMb'))}</span>
+    <div class="progress"><div style="width:${((d.loaded / d.total) * 100).toFixed(1)}%"></div></div>`;
+}
+tts.onProgress(updateModelBanner);
 
 // --- rendering --------------------------------------------------------------------------
 
@@ -387,7 +426,8 @@ function stepText(j, step, i, at) {
   if (i < at) return j.stepSeconds[step] >= 1 ? duration(j.stepSeconds[step]) : '✓';
   if (i > at) return '';
   const spent = j.stepSeconds[step] + (j.stepStarted ? (Date.now() - j.stepStarted) / 1000 : 0);
-  if (step === 'loading' && j.download) return `${duration(spent)} · ${t('step.downloading', { p: j.download })}`;
+  const download = step === 'loading' ? downloadText('step.downloadingMb') : '';
+  if (download) return `${duration(spent)} · ${download}`;
   if (step === 'export') return `${duration(spent)} · ${Math.round((j.exportProgress || 0) * 100)} %`;
   return duration(spent);
 }
@@ -405,6 +445,7 @@ function summaryText(j) {
   // A pause or delete takes effect after the passage being read; say that it is on its way.
   if (j.cancel) return t('job.deleting');
   if (j.pauseRequested) return t('job.pausing');
+  if (j.paused && j.step === 'loading' && tts.download()) return downloadText('job.pausedLoading');
   const left = j.paused || j.error ? null : remaining(j);
   return [t('time.runningFor', { d: duration(jobElapsed(j)) }), left != null ? t('time.left', { d: duration(left) }) : ''].filter(Boolean).join(' · ');
 }
@@ -589,12 +630,15 @@ async function run(j, doneMap) {
   updateJobView();
   try {
     // Load the voice model and the encoder; both download once and are then cached.
-    const stop = tts.onProgress((p) => {
-      if (p.type === 'progress' && p.total > 5e6) { j.download = Math.round((p.loaded / p.total) * 100); }
-    });
-    await Promise.all([tts.load(), loadEncoder()]);
-    stop();
-    j.download = null;
+    // Pause and Delete act at once here: pausing lets the download go on in the background
+    // (it is needed afterwards anyway), deleting stops it.
+    const loading = Promise.all([tts.load(), loadEncoder()]);
+    loading.catch(() => {});
+    while (!await untilSignal(j, loading)) {
+      if (j.cancel) throw new Error('cancelled');
+      await pausePoint(j);
+    }
+    await loading;
     enterStep(j, 'synth');
     updateJobView();
 
@@ -662,6 +706,7 @@ async function run(j, doneMap) {
   } catch (err) {
     if (j.runStarted) { j.runSeconds += (Date.now() - j.runStarted) / 1000; j.runStarted = null; }
     if (j.cancel) {
+      if (!state.device) tts.reset(); // deleted while the model was still downloading: stop that
       await discardJob();
       return;
     }
@@ -671,6 +716,14 @@ async function run(j, doneMap) {
     await keepAwake(false);
     if (state.job === j) updateJobView();
   }
+}
+
+// Wait for `promise`, but come back early when Pause or Delete is pressed: true once it settled.
+function untilSignal(j, promise) {
+  return new Promise((resolve) => {
+    j.signal = () => resolve(false);
+    promise.then(() => resolve(true), () => resolve(true));
+  }).finally(() => { j.signal = null; });
 }
 
 // Pause between passages: the clocks stop and the page may sleep until Continue is pressed.
@@ -778,18 +831,41 @@ async function importFile(file) {
 // --- previews -----------------------------------------------------------------------------
 
 let playing = null;
+const samples = new Map(); // `${voice}|${speed}|${lang}` -> blob URL of a finished preview
+let silence = null;
+
+// Browsers let audio start only shortly after a click, and the first preview may first spend a
+// minute or more downloading the model. Playing a moment of silence right in the click unlocks
+// the player for later; should a browser still refuse, the finished sample waits for a second click.
+function unlockPlayer(player) {
+  silence ??= URL.createObjectURL(wav(new Int16Array(2400)));
+  player.src = silence;
+  player.play().catch(() => {});
+}
+
 async function preview(voice, btn) {
   const player = $('#player');
   if (playing === voice) { player.pause(); playing = null; markPlaying(); return; }
   player.pause();
   playing = null;
   markPlaying();
+  const key = `${voice}|${state.speed}|${getLang()}`;
+  if (!samples.has(key)) unlockPlayer(player);
   btn.classList.add('busy');
   try {
-    const { audio } = await tts.generate(t('voice.sample'), voice, state.speed);
-    player.src = URL.createObjectURL(wav(audio));
+    if (!samples.has(key)) {
+      const { audio } = await tts.generate(t('voice.sample'), voice, state.speed);
+      samples.set(key, URL.createObjectURL(wav(audio)));
+    }
+    player.src = samples.get(key);
     playing = voice;
-    await player.play();
+    try {
+      await player.play();
+    } catch (err) {
+      playing = null;
+      if (err?.name !== 'NotAllowedError') throw err;
+      toast(t('voice.tapAgain'));
+    }
     markPlaying();
     refreshGo();
   } catch (err) {
@@ -857,6 +933,7 @@ document.addEventListener('click', async (ev) => {
       case 'start': await startJob(); break;
       case 'job-pause':
         state.job.pauseRequested = true;
+        state.job.signal?.();
         updateJobView();
         break;
       case 'job-resume': {
@@ -873,6 +950,7 @@ document.addEventListener('click', async (ev) => {
         j.cancel = true;
         j.pauseRequested = false;
         j.wake?.();
+        j.signal?.();
         updateJobView();
         break;
       }

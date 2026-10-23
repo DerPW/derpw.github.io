@@ -425,6 +425,8 @@ table.history .num { text-align: right; font-variant-numeric: tabular-nums; whit
   max-width: 380px; font-size: 14px; animation: rise .25s ease;
 }
 .toast.error { background: var(--bad); color: #fff; }
+.toast.loading { display: grid; gap: 6px; min-width: 260px; }
+.toast.loading .progress { background: color-mix(in srgb, var(--bg) 25%, transparent); }
 @keyframes rise { from { transform: translateY(8px); opacity: 0; } }
 
 .fade-in { animation: fade .25s ease; }
