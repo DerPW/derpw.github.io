@@ -4,13 +4,13 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js?v=60a50c5';
-import { planChunks } from './textprep.js?v=60a50c5';
-import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=60a50c5';
-import * as store from './store.js?v=60a50c5';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=60a50c5';
+import { parseFile, parseText } from './book.js?v=62b0a5a';
+import { planChunks } from './textprep.js?v=62b0a5a';
+import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=62b0a5a';
+import * as store from './store.js?v=62b0a5a';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=62b0a5a';
 
-const VERSION = '0.14.0'; // keep in step with src/lector/__init__.py
+const VERSION = '0.15.0'; // keep in step with src/lector/__init__.py
 // Characters per passage. Kokoro cuts off input beyond about 510 phoneme tokens, but memory is
 // the real limit: on WebGPU a 300-character passage briefly needs 3-4 GB, 180 characters stay
 // under 1 GB (measured on an M3), for about 15 % less speed.
@@ -66,6 +66,7 @@ const state = {
   job: null, // the running or finished job (see startJob)
   resume: null,
   hw: null, // what the browser tells about this device (see detectHardware)
+  lastBook: null, // the last book opened (without its content), offered on the start page
   // Voice list filters, as in Lector.
   voiceQuery: '',
   voiceGender: '',
@@ -128,7 +129,7 @@ const tts = (() => {
   const files = new Map(); // file -> {loaded, total} while the model downloads
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js?v=60a50c5', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=62b0a5a', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress') files.set(data.file, { loaded: data.loaded, total: data.total });
       if (data.type === 'ready' || data.type === 'error') files.clear();
@@ -286,6 +287,10 @@ function renderSource() {
   const r = state.resume;
   return `<div>
     <div class="hero"><h1>${esc(t('hero.title'))}</h1><p>${esc(t('hero.lead'))}</p></div>
+    ${state.lastBook && !state.importing ? `<div class="card resume"><div><strong>${esc(t('last.title'))}</strong>
+      <div class="muted small">${esc(lastBookText(state.lastBook))}</div></div>
+      <div class="done-actions"><button class="btn primary" data-action="reopen-last">${esc(t('last.open'))}</button>
+      <button class="btn ghost" data-action="forget-last">${esc(t('last.forget'))}</button></div></div>` : ''}
     ${r ? `<div class="card resume"><div><strong>${esc(t('resume.title'))}</strong>
       <div class="muted small">${esc(t('resume.text', { title: r.job.title, done: r.done, total: r.job.chapters.length }))}</div></div>
       <div class="done-actions"><button class="btn primary" data-action="resume">${esc(t('resume.go'))}</button>
@@ -877,6 +882,26 @@ async function loadResume() {
 
 // --- book import --------------------------------------------------------------------------
 
+function lastBookText(b) {
+  const details = [b.author, t(b.chapters === 1 ? 'last.chapter' : 'last.chapters', { n: b.chapters }),
+    b.kind === 'file' ? b.name : t('last.pasted')].filter(Boolean).join(' · ');
+  return t('last.text', { title: b.title, details });
+}
+
+// Keep what was just opened, for the next visit or the next version of the same book.
+async function rememberBook(book, source) {
+  const record = { ...source, title: book.title, author: book.author, chapters: book.chapters.length, saved: Date.now() };
+  await store.saveLastBook(record);
+  state.lastBook = { ...record, file: undefined, text: undefined };
+}
+
+async function reopenLastBook() {
+  const last = await store.loadLastBook();
+  if (!last) { state.lastBook = null; render(); return; }
+  if (last.kind === 'file') await importFile(last.file);
+  else setBook(parseText(last.text, last.title));
+}
+
 function setBook(book) {
   if (!book.chapters.length || !book.chapters.some((c) => c.words)) throw new Error(t('err.empty'));
   book.coverUrl = book.cover ? URL.createObjectURL(book.cover) : '';
@@ -894,7 +919,9 @@ async function importFile(file) {
   state.importing = file.name;
   render();
   try {
-    setBook(await parseFile(file));
+    const book = await parseFile(file);
+    setBook(book);
+    rememberBook(book, { kind: 'file', file, name: file.name });
   } catch (err) {
     toast(errorText(err), 'error');
   } finally {
@@ -971,10 +998,20 @@ document.addEventListener('click', async (ev) => {
       case 'paste-open': state.pasteOpen = true; render(); $('#paste-text')?.focus(); break;
       case 'paste-go': {
         const text = $('#paste-text').value;
-        if (text.trim()) setBook(parseText(text, $('#paste-title').value));
+        if (text.trim()) {
+          const book = parseText(text, $('#paste-title').value);
+          setBook(book);
+          rememberBook(book, { kind: 'text', text });
+        }
         break;
       }
       case 'other-book': state.book = null; render(); break;
+      case 'reopen-last': await reopenLastBook(); break;
+      case 'forget-last':
+        await store.forgetLastBook();
+        state.lastBook = null;
+        render();
+        break;
       case 'toggle-chapter':
         if (el.checked) state.selected.add(index); else state.selected.delete(index);
         chapterEl.classList.toggle('off', !el.checked);
@@ -1124,6 +1161,8 @@ $('#lang-toggle').addEventListener('click', () => { setLang(getLang() === 'de' ?
 
 setLang(getLang());
 await loadResume();
+const last = await store.loadLastBook();
+if (last) state.lastBook = { ...last, file: undefined, text: undefined };
 render();
 // Probing the graphics chip makes Firefox lay the page out, so it waits until the page has
 // loaded; then only the parts that depend on it change, not text being typed.

@@ -8,8 +8,8 @@
 // chapter files with chapter marks, metadata and the cover; per-chapter MP3s go into a ZIP
 // that is streamed together.
 
-import { FFmpeg } from './vendor/ffmpeg/index.js?v=60a50c5';
-import { FFFSType } from './vendor/ffmpeg/types.js?v=60a50c5';
+import { FFmpeg } from './vendor/ffmpeg/index.js?v=62b0a5a';
+import { FFFSType } from './vendor/ffmpeg/types.js?v=62b0a5a';
 import { downloadZip } from 'https://cdn.jsdelivr.net/npm/client-zip@2.5.0/index.js';
 
 // The ffmpeg core (32 MB), from either CDN; a complete download is kept in the browser's cache.

@@ -1,16 +1,18 @@
 // The unfinished audiobook, kept in IndexedDB so a reload (or Safari dropping the tab)
 // does not lose finished chapters. One job at a time: the book, the settings and the
-// encoded chapters done so far.
+// encoded chapters done so far. Apart from that, the last book opened (the file itself or the
+// pasted text), so another version can be made without picking it again.
 
 const DB = 'lector-lite';
 let dbPromise = null;
 
 function db() {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
+    const req = indexedDB.open(DB, 2);
     req.onupgradeneeded = () => {
-      req.result.createObjectStore('job');
-      req.result.createObjectStore('chapters');
+      for (const name of ['job', 'chapters', 'last']) {
+        if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name);
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -58,6 +60,20 @@ export async function loadChapters() {
   } catch {
     return new Map();
   }
+}
+
+// The last book: {kind: 'file', file, name} or {kind: 'text', text}, plus title, author and
+// the number of chapters.
+export async function saveLastBook(record) {
+  try { await tx('last', 'readwrite', (s) => s.put(record, 'book')); } catch { /* best effort */ }
+}
+
+export async function loadLastBook() {
+  try { return (await tx('last', 'readonly', (s) => s.get('book'))) || null; } catch { return null; }
+}
+
+export async function forgetLastBook() {
+  try { await tx('last', 'readwrite', (s) => s.delete('book')); } catch { /* nothing kept */ }
 }
 
 export async function clear() {

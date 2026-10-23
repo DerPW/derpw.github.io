@@ -7,7 +7,7 @@
 // index, ...) is kept in the list but left unchecked, like very short sections.
 
 import JSZip from 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm';
-import { clean, guessLanguage } from './textprep.js?v=60a50c5';
+import { clean, guessLanguage } from './textprep.js?v=62b0a5a';
 
 const BLOCK_TAGS = ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'ul', 'ol', 'dl', 'dd', 'dt',
   'blockquote', 'pre', 'section', 'article', 'header', 'footer', 'main', 'table', 'tr', 'td', 'th',
