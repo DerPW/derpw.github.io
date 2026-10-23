@@ -8,8 +8,8 @@
 // chapter files with chapter marks, metadata and the cover; per-chapter MP3s go into a ZIP
 // that is streamed together.
 
-import { FFmpeg } from './vendor/ffmpeg/index.js?v=d1b5dd3';
-import { FFFSType } from './vendor/ffmpeg/types.js?v=d1b5dd3';
+import { FFmpeg } from './vendor/ffmpeg/index.js?v=54585c9';
+import { FFFSType } from './vendor/ffmpeg/types.js?v=54585c9';
 import { downloadZip } from 'https://cdn.jsdelivr.net/npm/client-zip@2.5.0/index.js';
 
 const CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';

@@ -4,13 +4,13 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js?v=d1b5dd3';
-import { planChunks } from './textprep.js?v=d1b5dd3';
-import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=d1b5dd3';
-import * as store from './store.js?v=d1b5dd3';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=d1b5dd3';
+import { parseFile, parseText } from './book.js?v=54585c9';
+import { planChunks } from './textprep.js?v=54585c9';
+import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=54585c9';
+import * as store from './store.js?v=54585c9';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=54585c9';
 
-const VERSION = '0.13.0'; // keep in step with src/lector/__init__.py
+const VERSION = '0.13.1'; // keep in step with src/lector/__init__.py
 // Characters per passage. Kokoro cuts off input beyond about 510 phoneme tokens, but memory is
 // the real limit: on WebGPU a 300-character passage briefly needs 3-4 GB, 180 characters stay
 // under 1 GB (measured on an M3), for about 15 % less speed.
@@ -111,7 +111,7 @@ const tts = (() => {
   const listeners = new Set();
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js?v=d1b5dd3', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=54585c9', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress' || data.type === 'ready') listeners.forEach((fn) => fn(data));
       if (data.type === 'ready') waiting.get('load')?.resolve(data);
@@ -175,10 +175,15 @@ function gpuName(renderer) {
 async function detectHardware() {
   let gpu = '';
   try {
+    // Firefox names the chip in RENDERER (and deprecates the debug extension); Chrome and
+    // Safari answer "WebKit WebGL" there and name it only through the extension.
     const gl = document.createElement('canvas').getContext('webgl');
-    const info = gl?.getExtension('WEBGL_debug_renderer_info');
-    gpu = gpuName(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : '');
-    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    let renderer = gl?.getParameter(gl.RENDERER) || '';
+    if (/^(WebKit WebGL|Mozilla)?$/i.test(renderer)) {
+      const info = gl?.getExtension('WEBGL_debug_renderer_info');
+      if (info) renderer = gl.getParameter(info.UNMASKED_RENDERER_WEBGL);
+    }
+    gpu = gpuName(renderer);
   } catch { /* no WebGL */ }
   let webgpu = false;
   try { webgpu = !!(await navigator.gpu?.requestAdapter()); } catch { /* no WebGPU */ }
@@ -197,10 +202,14 @@ function hardwareText(hw) {
 
 // --- rendering --------------------------------------------------------------------------
 
-function render() {
+function renderChip() {
   const chip = $('#tagline');
   chip.textContent = hardwareText(state.hw) || t('tagline');
   chip.title = state.hw ? `${t('tagline')}. ${t('hw.note')}` : '';
+}
+
+function render() {
+  renderChip();
   $('#lang-toggle').textContent = t('lang.switch');
   $('#footer-version').textContent = `Lector Lite ${VERSION}`;
   const main = $('#view');
@@ -311,10 +320,10 @@ function renderVoice(v) {
 
 function renderRunOn() {
   if (!gpuOffered()) {
-    return `<div class="field"><span>${esc(t('runOn'))}</span><span class="faint small">${esc(t('runOn.noGpu'))}</span></div>`;
+    return `<div class="field" id="run-on"><span>${esc(t('runOn'))}</span><span class="faint small">${esc(t('runOn.noGpu'))}</span></div>`;
   }
   const note = [t('runOn.note'), IS_FIREFOX ? t('runOn.firefox') : ''].filter(Boolean).join(' ');
-  return `<div class="field"><span>${esc(t('runOn'))}</span><div class="segmented">${['gpu', 'cpu'].map((r) => `<button data-action="run-on" data-value="${r}" class="${r === state.runOn ? 'on' : ''}">${esc(t(`runOn.${r}`))} <small>${esc(t(`runOn.${r}.sub`))}</small></button>`).join('')}</div>
+  return `<div class="field" id="run-on"><span>${esc(t('runOn'))}</span><div class="segmented">${['gpu', 'cpu'].map((r) => `<button data-action="run-on" data-value="${r}" class="${r === state.runOn ? 'on' : ''}">${esc(t(`runOn.${r}`))} <small>${esc(t(`runOn.${r}.sub`))}</small></button>`).join('')}</div>
     <span class="faint small">${esc(note)}</span></div>`;
 }
 
@@ -945,4 +954,13 @@ $('#lang-toggle').addEventListener('click', () => { setLang(getLang() === 'de' ?
 setLang(getLang());
 await loadResume();
 render();
-detectHardware().then((hw) => { state.hw = hw; render(); }, () => {});
+// Probing the graphics chip makes Firefox lay the page out, so it waits until the page has
+// loaded; then only the parts that depend on it change, not text being typed.
+const loaded = document.readyState === 'complete' ? Promise.resolve()
+  : new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
+loaded.then(detectHardware).then((hw) => {
+  state.hw = hw;
+  renderChip();
+  const runOn = $('#run-on');
+  if (runOn) runOn.outerHTML = renderRunOn();
+}, () => {});
