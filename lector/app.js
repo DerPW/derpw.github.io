@@ -4,13 +4,13 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js?v=62b0a5a';
-import { planChunks } from './textprep.js?v=62b0a5a';
-import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=62b0a5a';
-import * as store from './store.js?v=62b0a5a';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=62b0a5a';
+import { parseFile, parseText } from './book.js?v=59cf9ca';
+import { planChunks } from './textprep.js?v=59cf9ca';
+import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=59cf9ca';
+import * as store from './store.js?v=59cf9ca';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=59cf9ca';
 
-const VERSION = '0.15.0'; // keep in step with src/lector/__init__.py
+const VERSION = '0.16.0'; // keep in step with src/lector/__init__.py
 // Characters per passage. Kokoro cuts off input beyond about 510 phoneme tokens, but memory is
 // the real limit: on WebGPU a 300-character passage briefly needs 3-4 GB, 180 characters stay
 // under 1 GB (measured on an M3), for about 15 % less speed.
@@ -129,7 +129,7 @@ const tts = (() => {
   const files = new Map(); // file -> {loaded, total} while the model downloads
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js?v=62b0a5a', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=59cf9ca', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress') files.set(data.file, { loaded: data.loaded, total: data.total });
       if (data.type === 'ready' || data.type === 'error') files.clear();
