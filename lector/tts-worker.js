@@ -70,6 +70,86 @@ async function importKokoro() {
   return import(KOKORO);
 }
 
+// --- self-test: does the graphics chip really speak? ---------------------------------------
+//
+// Some browser and graphics chip pairs run the model on WebGPU without an error but return noise
+// and crackle (seen in Zen, a Firefox fork). So after loading on WebGPU a short sentence is read
+// and compared with how it sounds when all is well: the loudness curve (25 ms frames, log RMS,
+// measured in Chrome on an M3; WebAssembly gives the same curve), the length, how often loud
+// passages cross zero (speech about 0.15, noise 0.5), and no clipped or invalid samples.
+const CHECK_TEXT = 'Hello, this is a quick test.';
+const CHECK_VOICE = 'af_heart';
+const CHECK_CURVE = [
+  -4, -4, -4, -4, -4, -4, -4, -4, -3.95, -3.8, -3.48, -2.79, -2.07, -1.7, -0.85, -0.8, -0.88,
+  -0.91, -0.85, -0.81, -0.8, -0.83, -0.84, -0.82, -0.84, -0.89, -0.96, -1.02, -1.01, -1.29,
+  -1.55, -1.43, -0.85, -0.86, -1.03, -1.27, -1.23, -1.54, -1.1, -1.16, -1.27, -1.18, -0.97,
+  -1.4, -2.45, -1.96, -1.78, -1.8, -0.93, -1.09, -1.49, -2.7, -2.47, -2.99, -1.87, -1.43,
+  -1.67, -1.07, -1.03, -1.09, -1.29, -1.55, -1.72, -1.85, -1.59, -1.49, -1.49, -1.39, -1.69,
+  -2.43, -1.6, -2.45, -3.21, -3.44, -3.55, -3.56, -3.73, -3.89, -3.96, -3.96, -3.99, -4, -4,
+  -4, -4, -4, -4, -4, -4
+];
+
+function curve(samples, rate) {
+  const n = Math.round(rate * 0.025);
+  const out = [];
+  for (let i = 0; i + n <= samples.length; i += n) {
+    let e = 0;
+    for (let k = i; k < i + n; k += 1) e += samples[k] * samples[k];
+    out.push(Math.log10(Math.sqrt(e / n) + 1e-4));
+  }
+  return out;
+}
+
+function correlation(a, b) {
+  const n = Math.min(a.length, b.length);
+  const at = (x, i) => x[Math.min(x.length - 1, Math.round((i * (x.length - 1)) / Math.max(1, n - 1)))];
+  let ma = 0;
+  let mb = 0;
+  for (let i = 0; i < n; i += 1) { ma += at(a, i) / n; mb += at(b, i) / n; }
+  let num = 0;
+  let da = 0;
+  let db = 0;
+  for (let i = 0; i < n; i += 1) {
+    const x = at(a, i) - ma;
+    const y = at(b, i) - mb;
+    num += x * y; da += x * x; db += y * y;
+  }
+  return da && db ? num / Math.sqrt(da * db) : 0;
+}
+
+// What is wrong with a reading of CHECK_TEXT, or '' when it sounds like speech.
+export function checkReading(samples, rate) {
+  let bad = 0;
+  let clipped = 0;
+  for (const v of samples) {
+    if (!Number.isFinite(v)) bad += 1;
+    else if (Math.abs(v) >= 0.99) clipped += 1;
+  }
+  if (bad) return 'invalid samples';
+  if (clipped > samples.length * 0.005) return 'clipping';
+  const c = curve(samples, rate);
+  const length = c.length / CHECK_CURVE.length;
+  if (length < 0.7 || length > 1.3) return `length ${length.toFixed(2)}`;
+  const n = Math.round(rate * 0.025);
+  let crossings = 0;
+  let counted = 0;
+  for (let f = 0; f < c.length; f += 1) {
+    if (c[f] < Math.log10(0.03)) continue;
+    for (let k = f * n + 1; k < (f + 1) * n; k += 1) if ((samples[k] >= 0) !== (samples[k - 1] >= 0)) crossings += 1;
+    counted += n - 1;
+  }
+  if (!counted) return 'silence';
+  const zcr = crossings / counted;
+  if (zcr > 0.25) return `noise (${zcr.toFixed(2)})`;
+  const r = correlation(c, CHECK_CURVE);
+  return r < 0.7 ? `loudness curve ${r.toFixed(2)}` : '';
+}
+
+async function soundsRight() {
+  const out = await tts.generate(CHECK_TEXT, { voice: CHECK_VOICE });
+  return checkReading(out.audio, out.sampling_rate);
+}
+
 async function load(prefer) {
   if (tts) return;
   ({ KokoroTTS } = await importKokoro());
@@ -84,10 +164,21 @@ async function load(prefer) {
   for (const [dev, dtype] of tries) {
     try {
       tts = await KokoroTTS.from_pretrained(MODEL, { dtype, device: dev, progress_callback: progress });
+      if (dev === 'webgpu') {
+        const wrong = await soundsRight();
+        if (wrong) {
+          fallback = 'garbled';
+          console.warn(`Lector Lite: WebGPU reads garbled audio here (${wrong}); using WebAssembly`);
+          try { await tts.model?.dispose?.(); } catch { /* best effort */ }
+          tts = null;
+          continue;
+        }
+      }
       device = dev;
       return;
     } catch (err) {
       last = err;
+      tts = null;
       if (dev === 'webgpu') fallback = String(err?.message || err).slice(0, 200);
     }
   }

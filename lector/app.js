@@ -4,13 +4,13 @@
 // Worker (Kokoro) -> encode each chapter right away (ffmpeg.wasm) and keep it in IndexedDB
 // -> put the M4B together (or zip the MP3s) -> download or share.
 
-import { parseFile, parseText } from './book.js?v=6f36327';
-import { planChunks } from './textprep.js?v=6f36327';
-import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=6f36327';
-import * as store from './store.js?v=6f36327';
-import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=6f36327';
+import { parseFile, parseText } from './book.js?v=60a50c5';
+import { planChunks } from './textprep.js?v=60a50c5';
+import { PcmTrack, assembleM4B, encodeChapter, load as loadEncoder, safeName, wav, zipChapters } from './encoder.js?v=60a50c5';
+import * as store from './store.js?v=60a50c5';
+import { duration, fileSize, getLang, languageName, setLang, t } from './i18n.js?v=60a50c5';
 
-const VERSION = '0.13.2'; // keep in step with src/lector/__init__.py
+const VERSION = '0.14.0'; // keep in step with src/lector/__init__.py
 // Characters per passage. Kokoro cuts off input beyond about 510 phoneme tokens, but memory is
 // the real limit: on WebGPU a 300-character passage briefly needs 3-4 GB, 180 characters stay
 // under 1 GB (measured on an M3), for about 15 % less speed.
@@ -66,7 +66,23 @@ const state = {
   job: null, // the running or finished job (see startJob)
   resume: null,
   hw: null, // what the browser tells about this device (see detectHardware)
+  // Voice list filters, as in Lector.
+  voiceQuery: '',
+  voiceGender: '',
+  voiceAccent: '',
+  voiceSort: 'recommended',
+  favOnly: false,
 };
+
+const favorites = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem('lectorLite.favorites') || '[]')); } catch { return new Set(); }
+})();
+function toggleFavorite(id) {
+  if (favorites.has(id)) favorites.delete(id); else favorites.add(id);
+  keep('lectorLite.favorites', JSON.stringify([...favorites]));
+}
+// The model card's grades, best first, for sorting.
+const GRADES = ['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D+', 'D', 'D-', 'F+', 'F'];
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -112,7 +128,7 @@ const tts = (() => {
   const files = new Map(); // file -> {loaded, total} while the model downloads
 
   function start() {
-    worker = new Worker(new URL('./tts-worker.js?v=6f36327', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./tts-worker.js?v=60a50c5', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress') files.set(data.file, { loaded: data.loaded, total: data.total });
       if (data.type === 'ready' || data.type === 'error') files.clear();
@@ -141,6 +157,15 @@ const tts = (() => {
       }).then((info) => {
         state.device = info.device;
         state.fallback = info.device === 'wasm' && state.runOn === 'gpu' ? info.fallback || '' : '';
+        if (state.fallback === 'garbled') {
+          // The graphics chip gave noise here: stay on the processor from now on (switching back
+          // by hand checks again) and say why.
+          state.runOn = 'cpu';
+          keep('lectorLite.runOn', 'cpu');
+          toast(fallbackText());
+          const field = $('#run-on');
+          if (field) field.outerHTML = renderRunOn();
+        }
         return info;
       }, (err) => { ready = null; throw err; });
       return ready;
@@ -304,7 +329,8 @@ function renderBook() {
     ${renderChapters()}
     <section class="section">
       <div class="section-head"><h2>${esc(t('voice'))}</h2></div>
-      <div class="voices">${VOICES.map(renderVoice).join('')}</div>
+      ${renderVoiceTools()}
+      ${renderVoiceList()}
       <div class="settings-grid" style="margin-top:22px">
         <label class="field"><span>${esc(t('speed'))}</span>
           <div class="speed"><input type="range" id="speed" min="0.7" max="1.4" step="0.05" value="${state.speed}">
@@ -349,9 +375,58 @@ function renderChapters() {
   </section>`;
 }
 
+function renderVoiceTools() {
+  const seg = (value, label) => `<button data-action="voice-gender" data-gender="${value}" class="${state.voiceGender === value ? 'on' : ''}">${esc(label)}</button>`;
+  return `<div class="voice-tools">
+    <input class="input" id="voice-query" type="search" placeholder="${esc(t('voices.search'))}" value="${esc(state.voiceQuery)}">
+    <div class="segmented compact">${seg('', t('voices.all'))}${seg('female', t('voices.female'))}${seg('male', t('voices.male'))}</div>
+    <select class="input compact" id="voice-accent" aria-label="${esc(t('voices.accent'))}">
+      <option value="">${esc(t('voices.allAccents'))}</option>
+      ${['us', 'gb'].map((a) => `<option value="${a}" ${a === state.voiceAccent ? 'selected' : ''}>${esc(t(`voices.accent.${a}`))}</option>`).join('')}
+    </select>
+    <select class="input compact" id="voice-sort" aria-label="${esc(t('voices.sort'))}">
+      ${['recommended', 'name', 'accent'].map((o) => `<option value="${o}" ${o === state.voiceSort ? 'selected' : ''}>${esc(t(`voices.sort.${o}`))}</option>`).join('')}
+    </select>
+    <label class="toggle"><input type="checkbox" class="check" id="fav-only" ${state.favOnly ? 'checked' : ''}> ${esc(t('voices.favorites'))}</label>
+  </div>`;
+}
+
+function shownVoices() {
+  const q = state.voiceQuery.trim().toLowerCase();
+  const list = VOICES.filter((v) => (!q || v.name.toLowerCase().includes(q))
+    && (!state.voiceGender || v.gender === state.voiceGender)
+    && (!state.voiceAccent || v.accent === state.voiceAccent)
+    && (!state.favOnly || favorites.has(v.id)));
+  const grade = (v) => GRADES.indexOf(v.grade);
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const order = {
+    recommended: (a, b) => (favorites.has(b.id) - favorites.has(a.id)) || grade(a) - grade(b) || byName(a, b),
+    name: byName,
+    accent: (a, b) => a.accent.localeCompare(b.accent) || grade(a) - grade(b) || byName(a, b),
+  }[state.voiceSort] || byName;
+  return list.sort(order);
+}
+
+function renderVoiceList() {
+  const list = shownVoices();
+  return `<div id="voice-list">
+    <div class="voices-count faint small">${esc(t('voices.count', { n: list.length, total: VOICES.length }))}</div>
+    ${list.length ? `<div class="voices">${list.map(renderVoice).join('')}</div>` : `<div class="empty">${esc(t('voices.noMatch'))}</div>`}
+  </div>`;
+}
+
+function refreshVoices() {
+  const el = $('#voice-list');
+  if (el) el.outerHTML = renderVoiceList();
+  markPlaying();
+}
+
 function renderVoice(v) {
-  const sub = [t(`voice.${v.accent}`), t(`voice.${v.gender}`), v.best ? t('voice.best') : ''].filter(Boolean).join(' · ');
+  // Short accent codes, so "best" still fits on the narrow cards.
+  const sub = [v.accent.toUpperCase(), t(`voice.${v.gender}`), v.best ? t('voice.best') : ''].filter(Boolean).join(' · ');
+  const fav = favorites.has(v.id);
   return `<div class="voice ${v.id === state.voice ? 'on' : ''}" data-action="voice" data-voice="${v.id}" role="button" tabindex="0">
+    <button class="star ${fav ? 'on' : ''}" data-action="favorite" data-voice="${v.id}" aria-label="${esc(t('voices.favorite'))}" aria-pressed="${fav}">${icon('star')}</button>
     <span class="vtext"><span class="vname">${esc(v.name)}</span><span class="vsub">${esc(sub)}</span></span>
     <button class="icon-btn play" data-action="preview" data-voice="${v.id}" aria-label="${esc(t('voice.play'))}">${icon('play')}</button>
   </div>`;
@@ -377,7 +452,7 @@ function deviceText(j) {
 
 function fallbackText() {
   if (!state.fallback) return '';
-  const why = ['no-adapter', 'no-webgpu'].includes(state.fallback) ? t(`runOn.why.${state.fallback}`) : state.fallback;
+  const why = ['no-adapter', 'no-webgpu', 'garbled'].includes(state.fallback) ? t(`runOn.why.${state.fallback}`) : state.fallback;
   return t('runOn.fallback', { why });
 }
 
@@ -888,7 +963,7 @@ document.addEventListener('click', async (ev) => {
   const el = ev.target.closest('[data-action]');
   if (!el) return;
   const action = el.dataset.action;
-  if (['preview', 'expand'].includes(action)) ev.preventDefault();
+  if (['preview', 'expand', 'favorite'].includes(action)) ev.preventDefault();
   const chapterEl = el.closest('.chapter');
   const index = chapterEl ? Number(chapterEl.dataset.index) : null;
   try {
@@ -924,6 +999,20 @@ document.addEventListener('click', async (ev) => {
         $$('.voice').forEach((v) => v.classList.toggle('on', v === el));
         break;
       case 'preview': await preview(el.dataset.voice, el); break;
+      case 'favorite':
+        toggleFavorite(el.dataset.voice);
+        if (state.favOnly) refreshVoices();
+        else {
+          const on = favorites.has(el.dataset.voice);
+          el.classList.toggle('on', on);
+          el.setAttribute('aria-pressed', String(on));
+        }
+        break;
+      case 'voice-gender':
+        state.voiceGender = el.dataset.gender;
+        $$('[data-action="voice-gender"]').forEach((b) => b.classList.toggle('on', b === el));
+        refreshVoices();
+        break;
       case 'format':
       case 'bitrate':
         state[action] = el.dataset.value;
@@ -996,6 +1085,7 @@ document.addEventListener('input', (ev) => {
   if (el.id === 'book-title') state.book.title = el.value;
   else if (el.id === 'book-author') state.book.author = el.value;
   else if (el.dataset.role === 'chapter-title') state.titles[Number(el.closest('.chapter').dataset.index)] = el.value;
+  else if (el.id === 'voice-query') { state.voiceQuery = el.value; refreshVoices(); }
   else if (el.id === 'speed') {
     state.speed = Number(el.value);
     $('#speed-out').textContent = `${state.speed.toFixed(2)}×`;
@@ -1007,6 +1097,9 @@ document.addEventListener('change', (ev) => {
   const el = ev.target;
   if (el.id === 'file') importFile(el.files[0]);
   else if (el.id === 'book-lang') { state.book.language = el.value; render(); }
+  else if (el.id === 'voice-accent') { state.voiceAccent = el.value; refreshVoices(); }
+  else if (el.id === 'voice-sort') { state.voiceSort = el.value; refreshVoices(); }
+  else if (el.id === 'fav-only') { state.favOnly = el.checked; refreshVoices(); }
 });
 
 document.addEventListener('keydown', (ev) => {

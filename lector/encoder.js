@@ -8,20 +8,25 @@
 // chapter files with chapter marks, metadata and the cover; per-chapter MP3s go into a ZIP
 // that is streamed together.
 
-import { FFmpeg } from './vendor/ffmpeg/index.js?v=6f36327';
-import { FFFSType } from './vendor/ffmpeg/types.js?v=6f36327';
+import { FFmpeg } from './vendor/ffmpeg/index.js?v=60a50c5';
+import { FFFSType } from './vendor/ffmpeg/types.js?v=60a50c5';
 import { downloadZip } from 'https://cdn.jsdelivr.net/npm/client-zip@2.5.0/index.js';
 
-const CORE = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
+// The ffmpeg core (32 MB), from either CDN; a complete download is kept in the browser's cache.
+const CORES = [
+  'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm',
+  'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm',
+];
+const CORE_CACHE = 'lector-lite-ffmpeg-0.12.10';
 export const RATE = 24000;
 
 let ffmpeg = null;
 let loading = null;
 let core = null; // blob URLs of the ffmpeg core, fetched once per page
 
-// Fetch into a blob URL, reporting progress. (The helper in @ffmpeg/util reads the body
-// twice when the server sends no content length, as jsDelivr does for compressed files.)
-async function blobURL(url, type, onProgress) {
+// Fetch into a blob, reporting progress. (The helper in @ffmpeg/util reads the body twice
+// when the server sends no content length, as jsDelivr does for compressed files.)
+async function download(url, type, onProgress) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
   const total = Number(res.headers.get('content-length')) || 0;
@@ -35,15 +40,38 @@ async function blobURL(url, type, onProgress) {
     received += value.length;
     onProgress?.(received, total);
   }
-  return URL.createObjectURL(new Blob(parts, { type }));
+  return new Blob(parts, { type });
+}
+
+// One core file as a blob URL: from the cache when an earlier visit kept it, otherwise from
+// the CDNs in turn, twice each. A transfer that breaks off (Firefox: "Content-Length header of
+// network response exceeds response body") is simply tried again.
+async function coreFile(name, type, onProgress) {
+  let cache = null;
+  try { cache = await caches.open(CORE_CACHE); } catch { /* no Cache Storage, e.g. private windows */ }
+  const kept = await cache?.match(name).catch(() => null);
+  if (kept) return URL.createObjectURL(new Blob([await kept.blob()], { type }));
+  let last;
+  for (const base of CORES) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const blob = await download(`${base}/${name}`, type, onProgress);
+        cache?.put(name, new Response(blob, { headers: { 'content-type': type } })).catch(() => {});
+        return URL.createObjectURL(blob);
+      } catch (err) {
+        last = err;
+      }
+    }
+  }
+  throw new Error(`ffmpeg could not be downloaded (${last?.message || last})`);
 }
 
 export function load(onProgress) {
   if (ffmpeg) return Promise.resolve(ffmpeg);
   loading ??= (async () => {
     core ??= {
-      coreURL: await blobURL(`${CORE}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await blobURL(`${CORE}/ffmpeg-core.wasm`, 'application/wasm', onProgress),
+      coreURL: await coreFile('ffmpeg-core.js', 'text/javascript'),
+      wasmURL: await coreFile('ffmpeg-core.wasm', 'application/wasm', onProgress),
     };
     const ff = new FFmpeg();
     await ff.load(core);
